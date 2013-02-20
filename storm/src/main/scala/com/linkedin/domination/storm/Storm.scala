@@ -9,6 +9,9 @@ import com.linkedin.domination.api.Planet
 import com.linkedin.domination.api.Size
 import scala.collection._
 
+//TODO: na podstawie romiaru mozna zawezac przedzialy...
+
+
 class Storm extends Player {
 
   val getPlayerName = "Storm"

@@ -5,6 +5,8 @@ import CLP._
 
 class CLPTest  extends FunSuite {
   
+  //TODO test and
+  
   /* 
    * Val
    */  
