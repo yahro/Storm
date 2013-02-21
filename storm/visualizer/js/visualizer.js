@@ -387,11 +387,13 @@ var TurnInfo = function(other) {
     return nextTurn;
   };
   self.consumeEvent = function(event) {
-    if (event.duration) {
-      fleet = new FleetTurnInfo(event);
-      fleet.id = fleetUniqueIdCounter++;
-      self.departing.push(fleet);
-    } else {
+    if (event.duration !== undefined) {
+      if (event.duration) {         // Ignore events sending ships to same planet, with duration == 0
+        fleet = new FleetTurnInfo(event);
+        fleet.id = fleetUniqueIdCounter++;
+        self.departing.push(fleet);
+      }
+    } else if (event.planet !== undefined) {
       self.landing.push(event);
     }
   };
@@ -403,7 +405,7 @@ var TurnInfo = function(other) {
       var s0 = planet.ships;
       planet.ships -= fleet.ships;
       if (planet.ships < 0) showAlert(planet.ships + " ships on planet " + planet.id + ' at turn ' + self.number);
-      if (planet.ships < 0) planet.ships = 0;   // Try compensate for a bug on producer side
+      if (planet.ships < 1) planet.owner = 0;   // Player decided to send away all his ships on the planet
     });
     var arriving = [];
     self.fleets.forEach(function(fleet) {

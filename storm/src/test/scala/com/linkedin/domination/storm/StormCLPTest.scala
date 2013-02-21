@@ -4,6 +4,7 @@ import org.scalatest.FunSuite
 import CLP._
 import StormCLP._
 import com.linkedin.domination.api.Size
+import com.linkedin.domination.api.Move
 
 class StormCLPTest  extends FunSuite {
   
@@ -32,5 +33,7 @@ class StormCLPTest  extends FunSuite {
     assert(growth.current === Val(16))
     assert(p0.population.current === Val(15))
   }
+  
+  
  
 }

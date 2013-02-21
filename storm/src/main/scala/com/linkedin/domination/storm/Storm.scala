@@ -8,6 +8,8 @@ import scala.collection.JavaConversions._
 import com.linkedin.domination.api.Planet
 import com.linkedin.domination.api.Size
 import scala.collection._
+import CLP._
+import StormCLP._
 
 //TODO: na podstawie romiaru mozna zawezac przedzialy...
 
@@ -32,40 +34,7 @@ class Storm extends Player {
   // ** Game state **
   var turn = 0
 
-  abstract class Population {
-    def +(population: Population): Population
-  }
-  
-  case class Estimate(min: Int, max: Int) extends Population {
-    override def +(population: Population): Population = {
-      population match {
-        case Exact(value) => Estimate(value + min, value + max)
-        case Estimate(mi, ma) => Estimate(min + mi, max + ma) 
-      }
-    }
-  }
-  
-  case class Exact(value: Int) extends Population {
-    override def +(population: Population): Population = {
-      population match {
-        case Exact(v) => Exact(value + v)
-        case Estimate(min, max) => Estimate(value + min, value + max)
-      }
-    }
-  }
-  
-  //TODO: zamiast tego: class PopulationChange??, incoming and changes in population state
-  abstract class ImprovablePopulation(var populationState: List[Population],
-      var improvee: List[(ImprovablePopulation, ImprovablePopulation) => Unit]) {
-    def current: Population //TODO
-    def setCurrent(population: Population)//TODO
-    def history: List[Population]
-  }
-
   case class Model(timeline: mutable.Map[Int, Vector[PlanetState]])
-  case class Flight(from: Int, to: Int, size: Population, departureTurn: Int, arrivalTurn: Int)
-  case class PlanetState(population: Population, arrivals: List[Flight], 
-      departures: List[Flight], owner: Int, relativeSize: Option[Size])
   
   /**
    * score = accumulated growth of me - accumulated growth of opponents (based on futures)
@@ -91,7 +60,7 @@ class Storm extends Player {
     if (model.timeline.isEmpty)
       initializeModel(universe)
     else
-      updateCurrentPopulations(universe, events.toList);
+      updateModel(universe, events.toList);
       
     //update model future
     
@@ -106,48 +75,20 @@ class Storm extends Player {
     List();
   }
   
-  def updateCurrentPopulations(universe: Universe, events: List[Event]) = {
+  def updateModel(universe: Universe, events: List[Event]) = {
+    
+      //process events which can trigger better approximation:
+      //- every turn if planet changed size it is exact value
+      //- every turn if planet did not change size lower bound can be increased
+      //- landing of our fleet means we know exact values
     for ((planetId, states) <- model.timeline) {
       val lastTurnState = states(turn - 1)
+      //TODO
       
-      //instead of this approach
-      //calculate planet state change:
-      //owner changed
-      //size changed etc
-      //arrivals
-      //departures
-      //and use pattern matching
-      
-      //najpierw rospisac sobie jakie sa mozliwosci
-      
-      lastTurnState.population match {
-        //if planet population is not known yet
-        case Estimate(eMin, eMax) => {
-	      //first let's check if relative size has changed,
-	      //in that case we know exact size of the planet
-          val planetFromMap = universe.getPlanetMap().get(planetId)
-          //TODO also check there was no fight here
-	      if (Some(planetFromMap.getSize()) != lastTurnState.relativeSize) {
-	        if (planetFromMap.getSize() == Size.MEDIUM)
-	          model.timeline(planetId) = states :+
-	            PlanetState(Exact(20), List(), List(), planetFromMap.getOwner(), None)
-	        else if (planetFromMap.getSize() == Size.LARGE)
-	          model.timeline(planetId) = states :+
-	            PlanetState(Exact(50), List(), List(), planetFromMap.getOwner(), None)
-	      } else {
-	        //TODO
-	        model.timeline(planetId) = states :+ lastTurnState  //add growth
-	      }
-        }
-        case Exact(value) => {
-          //TODO
-	        model.timeline(planetId) = states :+ lastTurnState  //add growth
-        } 
-      }
     }
     
     
-    //TODO
+    //TODO create new states for this turn
   }
   
   def initializeModel(universe: Universe) = {
@@ -158,40 +99,32 @@ class Storm extends Player {
 
   def initialState(planet: Planet): PlanetState = {
     planet.getOwner() match {
-      case NeutralPlanet =>
-        PlanetState(estimateNeutralPlanetInitialPopulation(planet),
-            List(), List(), NeutralPlanet, Some(planet.getSize()))
-      case player => PlanetState(Exact(planet.getPopulation), List(), List(), player, None)
-    }
-  }
-  
-  def estimateNeutralPlanetInitialPopulation(planet: Planet): Estimate = {
-    if (planet.getSize() == Size.SMALL)
-      Estimate(1, 19)
-    else if (planet.getSize() == Size.MEDIUM)
-      Estimate(20, 49)
-    else Estimate(50, 90)  //TODO confirm it should be 90
-  }
-  
-  def growth(population: Population): Population = {
-    population match {
-      case Exact(value) => {
-        if (value < 20)
-          Exact(1)
-        else if (value < 50)
-          Exact(2)
-        else
-          Exact(4)
+      case NeutralPlanet => {
+    	val population = if (planet.getSize() == Size.SMALL)
+        			  RangeVar(1, 19)
+        			else if (planet.getSize() == Size.MEDIUM)
+        			  RangeVar(20, 49)
+        			else RangeVar(50, 90)
+        val planetState = PlanetState(planet.getId(),
+        			new VariableNode(population),
+        			0,
+        			NeutralPlanet,
+        			planet.getSize())
+        planetState.population.incoming ::= new InitialState(planetState, population)
+        planetState
       }
-      case Estimate(eMin, eMax) => {
-        val minGrowth = growth(Exact(eMin)).asInstanceOf[Exact]
-        val maxGrowth = growth(Exact(eMax)).asInstanceOf[Exact]
-        if (minGrowth == maxGrowth)
-          minGrowth
-        else
-          Estimate(minGrowth.value, maxGrowth.value)
+      case player => {
+        val population = Val(40)
+        val planetState = PlanetState(planet.getId(),
+        			new VariableNode(population),
+        			0,
+        			player,
+        			planet.getSize())
+        planetState.population.incoming ::= new InitialState(planetState, population)
+        planetState
       }
     }
   }
+  
   
 }

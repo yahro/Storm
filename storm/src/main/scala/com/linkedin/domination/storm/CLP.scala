@@ -5,15 +5,84 @@ object CLP {
   abstract trait Var {
     def +(v: Var): Var
     def -(v: Var): Var
+    def *(d: Double): Var
     def and(v: Var): Var
+    def or(v: Var): Var
+    def intersects(v: Var): Boolean
     def isMorePreciseThan(v: Var): Boolean
     def fixed: Boolean
   }
   
+
+  case class Val(v: Int) extends Var {
+
+    val fixed = true
+    
+    override def *(d: Double): Var = Val((v.toDouble * d).toInt)
+
+    override def intersects(variable: Var): Boolean = {
+      variable match {
+        case Val(v2) => v == v2
+        case RangeVar(min, max) => v >= min && v <= max
+        case ListVar(vals) => vals.contains(v)
+      }
+    }
+    
+    override def +(variable: Var): Var = {
+      variable match {
+        case Val(v2) => Val(v + v2)
+        case RangeVar(min, max) => RangeVar(v + min, v + max)
+        case ListVar(vals) => ListVar(vals map (_ + v))
+      }
+    }
+
+    override def -(variable: Var): Var = {
+      variable match {
+        case Val(v2) => Val(v - v2)
+        case RangeVar(min, max) => RangeVar(v - max, v - min)
+        case ListVar(vals) => ListVar((vals map (v - _)).reverse)
+      }
+    }
+
+    override def and(variable: Var): Var = {
+      if (this == variable)
+        this
+      else
+        throw new CLPException(toString + " and " + variable + " is empty")
+    }
+
+    override def or(variable: Var): Var = {
+      variable match {
+        case Val(v2) => if (v == v2) this else ListVar(List(v, v2).sorted)
+        case RangeVar(min, max) => RangeVar(v min min, v max max)
+        case ListVar(vals) => ListVar((v :: vals).distinct.sorted)
+      }
+    }
+
+    override def isMorePreciseThan(variable: Var): Boolean = {
+      variable match {
+        case Val(_) => false
+        case _ => true
+      }
+    }
+    override def toString = "Val(" + v + ")"
+  }
+
   case class RangeVar(min: Int, max: Int) extends Var {
     require (min < max, "invalid range: min=" + min + ", max=" + max)
     
     val fixed = false
+    
+    override def intersects(variable: Var): Boolean = {
+      variable match {
+        case Val(_) => variable intersects this 
+        case RangeVar(min2, max2) => !((max < min2) || (max2 < min))
+        case ListVar(vals) => RangeVar(vals.head, vals.last) intersects this
+      }
+    }
+
+    //TODO rounding???
+    override def *(d: Double): Var = RangeVar((min.toDouble * d).toInt, (max.toDouble * d).toInt)
     
     override def +(variable: Var): Var = {
       variable match {
@@ -40,6 +109,14 @@ object CLP {
       }
     }
     
+    override def or(variable: Var): Var = {
+      variable match {
+        case Val(_) => variable or this 
+        case RangeVar(min2, max2) => RangeVar(min min min2, max max max2)
+        case ListVar(vals) => RangeVar(min min vals.head, max max vals.last)
+      }
+    }
+
     override def isMorePreciseThan(variable: Var): Boolean = {
       variable match {
         case Val(_) => false
@@ -73,6 +150,19 @@ object CLP {
 
     val fixed = false
     
+    override def intersects(variable: Var): Boolean = {
+      variable match {
+        case Val(_) => variable intersects this 
+        case RangeVar(_, _) => variable intersects this
+        case ListVar(vals2) => !vals.intersect(vals2).isEmpty
+      }
+    }
+
+    //TODO rounding???
+    override def *(d: Double): Var = ListVar(vals.map{
+      x => ((x.toDouble) * d).toInt
+    })
+
     override def +(variable: Var): Var = {
       variable match {
         case Val(_) => variable + this
@@ -106,6 +196,14 @@ object CLP {
         case _ => throw new CLPException(toString + " and " + variable + " is empty")
       }
     }
+
+    override def or(variable: Var): Var = {
+      variable match {
+        case Val(_) => variable or this
+        case RangeVar(_,_) => variable or this
+        case ListVar(vals2) => ListVar((vals ::: vals2).distinct.sorted)
+      }
+    }
     
     override def isMorePreciseThan(variable: Var): Boolean = {
       variable match {
@@ -124,43 +222,6 @@ object CLP {
 
     override def toString = "ListVar(" + vals + ")"
   }
-  
-  case class Val(v: Int) extends Var {
-
-    val fixed = true
-
-    override def +(variable: Var): Var = {
-      variable match {
-        case Val(v2) => Val(v + v2)
-        case RangeVar(min, max) => RangeVar(v + min, v + max)
-        case ListVar(vals) => ListVar(vals map (_ + v))
-      }
-    }
-
-    override def -(variable: Var): Var = {
-      variable match {
-        case Val(v2) => Val(v - v2)
-        case RangeVar(min, max) => RangeVar(v - max, v - min)
-        case ListVar(vals) => ListVar((vals map (v - _)).reverse)
-      }
-    }
-
-    override def and(variable: Var): Var = {
-      if (this == variable)
-        this
-      else
-        throw new CLPException(toString + " and " + variable + " is empty")
-    }
-
-    override def isMorePreciseThan(variable: Var): Boolean = {
-      variable match {
-        case Val(_) => false
-        case _ => true
-      }
-    }
-    override def toString = "Val(" + v + ")"
-  }
-
   
   class Variable(initialVar: Var) {
     private var hist: List[Var] = initialVar :: Nil
@@ -218,8 +279,6 @@ object CLP {
 	          if (candidate.isMorePreciseThan(edge.current))
 	            edge.backPropagate(candidate)
 	      }
-	      
-	      
 	    }
 	  }
     }
@@ -252,6 +311,7 @@ object CLP {
       }
     }
     
+    //propagates value changed at this edge
     def backPropagate(v: Var): Unit
     
   }
