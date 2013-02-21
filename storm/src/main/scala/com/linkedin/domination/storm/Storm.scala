@@ -110,7 +110,7 @@ class Storm extends Player {
         			0,
         			NeutralPlanet,
         			planet.getSize())
-        planetState.population.incoming ::= new InitialState(planetState, population)
+        planetState.population.incoming ::= new Growth(planetState, population)
         planetState
       }
       case player => {
@@ -120,7 +120,7 @@ class Storm extends Player {
         			0,
         			player,
         			planet.getSize())
-        planetState.population.incoming ::= new InitialState(planetState, population)
+        planetState.population.incoming ::= new Growth(planetState, population)
         planetState
       }
     }

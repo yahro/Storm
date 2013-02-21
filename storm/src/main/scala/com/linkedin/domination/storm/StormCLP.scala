@@ -12,25 +12,24 @@ object StormCLP {
     		", turn=" + turn + ", owner=" + owner + ", size=" + relativeSize + ")"
   }
   
-  class Growth(source: PlanetState, target: PlanetState, growth: Var) extends Edge(source.population, target.population) {
+  class NextTurn(source: PlanetState, target: PlanetState) extends Edge(source.population, target.population) {
     
-    def calculateCurrent = source.population.current + growth
+    def calculateCurrent = source.population.current
     
     def backPropagate(v: Var) = {
-      source.population.set(v - growth)
+      source.population.set(v)
     }
     
-    override def toString = "Growth(source=" + source + ", target=" + target +
-    		", growth=" + growth + ")"
+    override def toString = "NextTurn(source=" + source + ", target=" + target + ")"
   }
 
-  class InitialState(target: PlanetState, value: Var) extends Edge(null, target.population) {
+  class Growth(target: PlanetState, value: Var) extends Edge(null, target.population) {
     
     def calculateCurrent = value
     
     def backPropagate(v: Var) = {}
     
-    override def toString = "InitialState(target=" + target + ", value=" + value + ")"
+    override def toString = "Growth(target=" + target + ", value=" + value + ")"
   }
 
   class Flight(source: PlanetState, target: PlanetState, relativeSize: Size, duration: Int) extends Edge(source.population, target.population) {
