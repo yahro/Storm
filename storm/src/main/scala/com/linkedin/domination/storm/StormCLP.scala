@@ -142,7 +142,7 @@ object StormCLP {
   }
   
   
-  class Flight(src: PlanetState, relativeSize: Size, duration: Int) extends Edge(Some(src.population), None) {
+  class Flight(src: PlanetState, val relativeSize: Size, val duration: Int, val owner: Int) extends Edge(Some(src.population), None) {
     
     src.addOutgoing(this)
 
@@ -179,7 +179,7 @@ object StormCLP {
     
     override def toString = "Flight(source=" + src + ", target=" + target +
     		", size=" + relativeSize + ", fleetTypes=" + fleetTypes +
-    		", current=" + current + ", duration=" + duration + ")"
+    		", current=" + current + ", duration=" + duration + ", owner=" + owner + ")"
   }
   
 }

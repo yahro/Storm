@@ -4,15 +4,13 @@ import com.linkedin.domination.api.Player
 import com.linkedin.domination.api.Universe
 import com.linkedin.domination.api.Move
 import com.linkedin.domination.api.Event
+import com.linkedin.domination.api.Event.EventType
 import scala.collection.JavaConversions._
 import com.linkedin.domination.api.Planet
 import com.linkedin.domination.api.Size
 import scala.collection._
 import CLP._
 import StormCLP._
-
-//TODO: na podstawie romiaru mozna zawezac przedzialy...
-
 
 class Storm extends Player {
 
@@ -30,7 +28,7 @@ class Storm extends Player {
   // ** Game state **
   var turn = 0
 
-  case class Model(timeline: mutable.Map[Int, Vector[PlanetState]])
+  case class Model(timeline: mutable.Map[Int, mutable.Map[Int, PlanetState]], arrivals: mutable.Map[Int, mutable.Map[Int, List[Flight]]])
   
   /**
    * score = accumulated growth of me - accumulated growth of opponents (based on futures)
@@ -48,7 +46,7 @@ class Storm extends Player {
    * pamietac przyloty, ktore sie na pewno zdarza w przyszlosci...
    */
   
-  val model: Model = Model(mutable.Map()) //initially empty model
+  val model: Model = Model(mutable.Map(), mutable.Map()) //initially empty model
   
   def makeMove(universe: Universe, events: java.util.List[Event]): java.util.List[Move] = {  
       
@@ -57,12 +55,10 @@ class Storm extends Player {
       initializeModel(universe)
     else
       updateModel(universe, events.toList);
-      
+
     //update model future
     
     //TODO calculate moves
-    
-    //TODO events happened in last turn
     
     //update turn
     turn += 1
@@ -73,24 +69,79 @@ class Storm extends Player {
   
   def updateModel(universe: Universe, events: List[Event]) = {
     
-      //process events which can trigger better approximation:
-      //- every turn if planet changed size it is exact value
-      //- every turn if planet did not change size lower bound can be increased
-      //- landing of our fleet means we know exact values
+    val departures = events.filter(_.getEventType() == EventType.LAUNCH)
+    					.map(x => (x.getFromPlanet(), x)).toMap
+    
+    //process events which can trigger better approximation:
+    //- every turn if planet changed size it is exact value (if there were no combats)
+    //- every turn if planet did not change size lower bound can be increased
+    //- landing of our fleet means we know exact values
+      
+    //departures
+    
+    //arrivals
+    
     for ((planetId, states) <- model.timeline) {
       val lastTurnState = states(turn - 1)
-      //TODO
+      val currentUniversePlanet = universe.getPlanetMap().get(planetId)
+      val arrivalsMap = model.arrivals.getOrElseUpdate(planetId, mutable.Map())
+      
+      //first create flight
+      departures.get(planetId).foreach {
+        event =>
+          val flight = new Flight(lastTurnState,
+                                  currentUniversePlanet.getSize(),
+                                  Universe.getTimeToTravel(currentUniversePlanet,
+                                      universe.getPlanetMap().get(event.getToPlanet())),
+                                  lastTurnState.owner)
+          val landingTurn = turn -1 + flight.duration
+          val arrivals = flight :: arrivalsMap.getOrElseUpdate(landingTurn, Nil)
+          arrivalsMap.update(landingTurn, arrivals)
+      }
+      
+      val arrivals = for (arrList <- arrivalsMap.get(turn)) yield arrList
+      
+      val playersOnPlanet = arrivals match {
+        case None => lastTurnState.owner :: Nil
+        case Some(l) => (lastTurnState.owner :: l.map(_.owner)).distinct
+      }
+      
+      //create new turn
+      val currentPlanetState = lastTurnState.createNextTurnState(currentUniversePlanet.getSize())
+      states(turn) = currentPlanetState
+      
+      playersOnPlanet.size match {
+        case 1 => {
+          //friendly mode
+          
+          //TODO take arrivals into account
+          //TODO mount arrivals
+          null
+        }
+        case _ => {
+          //combat mode
+          
+          //TODO take combat into account
+          //TODO mount arrivals
+          null
+        }
+      }
+      
+      currentPlanetState.population.applyMask
       
     }
     
+    for ((planetId, states) <- model.timeline) {
+      states(turn - 1).population.propagateBothWays
+      states(turn).population.propagateBothWays
+    }
     
-    //TODO create new states for this turn
   }
   
   def initializeModel(universe: Universe) = {
     for ((id, planet) <- universe.getPlanetMap()){
       model.timeline(id.toInt) =
-        Vector(PlanetState.initialPlanetState(planet.getId(), planet.getOwner(), planet.getSize()))
+        mutable.Map(0 -> PlanetState.initialPlanetState(planet.getId(), planet.getOwner(), planet.getSize()))
     }
   }
   

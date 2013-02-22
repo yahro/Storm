@@ -47,7 +47,7 @@ class StormCLPTest  extends FunSuite {
     //planet names: p[id][turn]
     val p00 = PlanetState.initialPlanetState(0, 1, Size.MEDIUM)
     val p10 = PlanetState.initialPlanetState(1, 0, Size.MEDIUM)
-    val f = new Flight(p00, Size.SMALL, 1)
+    val f = new Flight(p00, Size.SMALL, 1, 1)
     
     val p01 = p00.createNextTurnState(Size.MEDIUM)
     val p11 = p10.createNextTurnState(Size.MEDIUM)
@@ -69,7 +69,7 @@ class StormCLPTest  extends FunSuite {
     //planet names: p[id][turn]
     val p00 = PlanetState.initialPlanetState(0, 1, Size.MEDIUM)
     val p10 = PlanetState.initialPlanetState(1, 0, Size.MEDIUM)
-    val f = new Flight(p00, Size.MEDIUM, 1)
+    val f = new Flight(p00, Size.MEDIUM, 1, 1)
     
     val p01 = p00.createNextTurnState(Size.MEDIUM)
     val p11 = p10.createNextTurnState(Size.MEDIUM)
@@ -99,7 +99,7 @@ class StormCLPTest  extends FunSuite {
     //planet names: p[id][turn]
     val p00 = PlanetState.initialPlanetState(0, 1, Size.MEDIUM)
     val p10 = PlanetState.initialPlanetState(1, 0, Size.MEDIUM)
-    val f = new Flight(p00, Size.MEDIUM, 1)
+    val f = new Flight(p00, Size.MEDIUM, 1, 1)
     
     val p01 = p00.createNextTurnState(Size.SMALL)
     val p11 = p10.createNextTurnState(Size.LARGE)
@@ -126,7 +126,7 @@ class StormCLPTest  extends FunSuite {
     //planet names: p[id][turn]
     val p00 = PlanetState.initialPlanetState(0, 1, Size.MEDIUM)
     val p10 = PlanetState.initialPlanetState(1, 0, Size.MEDIUM)
-    val f = new Flight(p00, Size.SMALL, 1)
+    val f = new Flight(p00, Size.SMALL, 1, 1)
     
     val p01 = p00.createNextTurnState(Size.SMALL)
     val p11 = p10.createNextTurnState(Size.LARGE)
