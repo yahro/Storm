@@ -48,10 +48,12 @@ object CLP {
     }
 
     override def and(variable: Var): Var = {
-      if (this == variable)
-        this
-      else
-        throw new CLPException(toString + " and " + variable + " is empty")
+      variable match {
+        case Val(x) if this == variable => this
+        case RangeVar(_, _) => variable and this
+        case ListVar(_) => variable and this
+        case _ => throw new CLPException(toString + " and " + variable + " is empty") 
+      }
     }
 
     override def or(variable: Var): Var = {
@@ -266,8 +268,8 @@ object CLP {
       val sum = calculate(edges)
       if (sum.isMorePreciseThan(current)) {
         set(sum)
-        propagateBothWays
       }
+      propagateBothWays
     }
     
     @tailrec

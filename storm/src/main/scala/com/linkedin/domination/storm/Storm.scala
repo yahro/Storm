@@ -74,18 +74,16 @@ class Storm extends Player {
     
     //process events which can trigger better approximation:
     //- every turn if planet changed size it is exact value (if there were no combats)
-    //- every turn if planet did not change size lower bound can be increased
+    //- every turn if planet did not change size lower bound can be increased - this
+    //	should be done automatically 
     //- landing of our fleet means we know exact values
       
-    //departures
-    
-    //arrivals
-    
     for ((planetId, states) <- model.timeline) {
       val lastTurnState = states(turn - 1)
       val currentUniversePlanet = universe.getPlanetMap().get(planetId)
       val arrivalsMap = model.arrivals.getOrElseUpdate(planetId, mutable.Map())
       
+      //departures
       //first create flight
       departures.get(planetId).foreach {
         event =>
@@ -99,6 +97,7 @@ class Storm extends Player {
           arrivalsMap.update(landingTurn, arrivals)
       }
       
+      //arrivals
       val arrivals = for (arrList <- arrivalsMap.get(turn)) yield arrList
       
       val playersOnPlanet = arrivals match {
@@ -107,7 +106,8 @@ class Storm extends Player {
       }
       
       //create new turn
-      val currentPlanetState = lastTurnState.createNextTurnState(currentUniversePlanet.getSize())
+      val currentPlanetState = lastTurnState.createNextTurnState(currentUniversePlanet.getSize(), 
+          currentUniversePlanet.getOwner())
       states(turn) = currentPlanetState
       
       playersOnPlanet.size match {
@@ -127,8 +127,12 @@ class Storm extends Player {
         }
       }
       
+      lastTurnState.population.applyMask
       currentPlanetState.population.applyMask
-      
+
+      lastTurnState.population.propagateBothWays
+      currentPlanetState.population.propagateBothWays
+     
     }
     
     for ((planetId, states) <- model.timeline) {

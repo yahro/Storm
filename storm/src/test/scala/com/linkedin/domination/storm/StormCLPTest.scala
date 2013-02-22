@@ -12,7 +12,7 @@ class StormCLPTest  extends FunSuite {
   
   test("forward simple growth population - neutral planet") {
     val p0 = PlanetState.initialPlanetState(0, NeutralPlanet, Size.SMALL)
-    val p1 = p0.createNextTurnState(Size.SMALL)
+    val p1 = p0.createNextTurnState(Size.SMALL, NeutralPlanet)
     
     p0.population.propagateBothWays
     p1.population.propagateBothWays
@@ -27,17 +27,38 @@ class StormCLPTest  extends FunSuite {
 
   test("backwards simple growth population - neutral planet") {
     val p0 = PlanetState.initialPlanetState(0, NeutralPlanet, Size.SMALL)
-    val p1 = p0.createNextTurnState(Size.SMALL)
+    val p1 = p0.createNextTurnState(Size.SMALL, NeutralPlanet)
     p1.set(Val(15))
     assert(p0.current === Val(15))
   }
   
   test("forward simple growth population - player's planet") {
-    val p0 = PlanetState.initialPlanetState(0, 1, Size.MEDIUM)
-    val p1 = p0.createNextTurnState(Size.MEDIUM)
+    val owner = 1
+    val p0 = PlanetState.initialPlanetState(0, owner, Size.MEDIUM)
+    val p1 = p0.createNextTurnState(Size.MEDIUM, owner)
     assert(p1.current === Val(42))
   }
 
+  test("forward growth population multiple turns - player's planet MEDIUM to LARGE") {
+    val owner = 1
+    var planets = PlanetState.initialPlanetState(0, owner, Size.MEDIUM) :: Nil
+    val f = new Flight(planets.head, Size.MEDIUM, 1, owner)
+    for (i <- 22 to 48 by 2) {
+      planets = planets.head.createNextTurnState(Size.MEDIUM, owner) :: planets
+      planets.head.population.applyMask
+      planets.head.population.propagateBothWays
+      planets.tail.head.population.applyMask
+      planets.tail.head.population.propagateBothWays
+      assert(planets.head.current === Val(i))
+    }
+    planets = planets.head.createNextTurnState(Size.LARGE, owner) :: planets
+    planets.head.population.applyMask
+    planets.head.population.propagateBothWays
+    planets.tail.head.population.applyMask
+    planets.tail.head.population.propagateBothWays
+    assert(planets.head.current === Val(50))
+  }
+  
   /**
    * Because fleet size is SMALL, and original planet size is 40, we know that
    * it must be equal to 10. Thus, population subtracted by fleet size is 30.
@@ -49,8 +70,8 @@ class StormCLPTest  extends FunSuite {
     val p10 = PlanetState.initialPlanetState(1, 0, Size.MEDIUM)
     val f = new Flight(p00, Size.SMALL, 1, 1)
     
-    val p01 = p00.createNextTurnState(Size.MEDIUM)
-    val p11 = p10.createNextTurnState(Size.MEDIUM)
+    val p01 = p00.createNextTurnState(Size.MEDIUM, 1)
+    val p11 = p10.createNextTurnState(Size.MEDIUM, 0)
     f.setTarget(p11)
 
     p00.population.propagateBothWays
@@ -71,8 +92,8 @@ class StormCLPTest  extends FunSuite {
     val p10 = PlanetState.initialPlanetState(1, 0, Size.MEDIUM)
     val f = new Flight(p00, Size.MEDIUM, 1, 1)
     
-    val p01 = p00.createNextTurnState(Size.MEDIUM)
-    val p11 = p10.createNextTurnState(Size.MEDIUM)
+    val p01 = p00.createNextTurnState(Size.MEDIUM, 1)
+    val p11 = p10.createNextTurnState(Size.MEDIUM, 0)
 
     f.setTarget(p11)
     p11.population.incomingChanged
@@ -101,8 +122,8 @@ class StormCLPTest  extends FunSuite {
     val p10 = PlanetState.initialPlanetState(1, 0, Size.MEDIUM)
     val f = new Flight(p00, Size.MEDIUM, 1, 1)
     
-    val p01 = p00.createNextTurnState(Size.SMALL)
-    val p11 = p10.createNextTurnState(Size.LARGE)
+    val p01 = p00.createNextTurnState(Size.SMALL, 1)
+    val p11 = p10.createNextTurnState(Size.LARGE, 0)
     
     f.setTarget(p11)
 
@@ -128,8 +149,8 @@ class StormCLPTest  extends FunSuite {
     val p10 = PlanetState.initialPlanetState(1, 0, Size.MEDIUM)
     val f = new Flight(p00, Size.SMALL, 1, 1)
     
-    val p01 = p00.createNextTurnState(Size.SMALL)
-    val p11 = p10.createNextTurnState(Size.LARGE)
+    val p01 = p00.createNextTurnState(Size.SMALL, 1)
+    val p11 = p10.createNextTurnState(Size.LARGE, 0)
     
     f.setTarget(p11)
 
@@ -145,5 +166,35 @@ class StormCLPTest  extends FunSuite {
     assert(p01.current === Val(32))
   }
   
+  test("forward simple growth population - player abandoned planet") {
+    val owner = 1
+    var planets = PlanetState.initialPlanetState(0, owner, Size.MEDIUM) :: Nil
+    val f = new Flight(planets.head, Size.MEDIUM, 1, owner)
+    for (i <- 22 to 48 by 2) {
+      planets = planets.head.createNextTurnState(Size.MEDIUM, owner) :: planets
+      planets.head.population.applyMask
+      planets.head.population.propagateBothWays
+      planets.tail.head.population.applyMask
+      planets.tail.head.population.propagateBothWays
+      assert(planets.head.current === Val(i))
+    }
+    planets = planets.head.createNextTurnState(Size.LARGE, owner) :: planets
+    planets.head.population.applyMask
+    planets.head.population.propagateBothWays
+    planets.tail.head.population.applyMask
+    planets.tail.head.population.propagateBothWays
+    assert(planets.head.current === Val(50))
+    
+    val migration = new Flight(planets.head, Size.LARGE, 1, owner)
+    planets = planets.head.createNextTurnState(Size.SMALL, NeutralPlanet) :: planets
+    planets.head.population.applyMask
+    planets.head.population.propagateBothWays
+    planets.tail.head.population.applyMask
+    planets.tail.head.population.propagateBothWays
+
+    assert(planets.head.current === Val(0))
+    assert(planets.head.owner === NeutralPlanet)
+    
+  }
   
 }

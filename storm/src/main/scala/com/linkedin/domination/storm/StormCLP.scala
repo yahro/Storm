@@ -45,24 +45,33 @@ object StormCLP {
       population.propagateBothWays
     }
     
-    def createNextTurnState(size: Size): PlanetState = {
+    def createNextTurnState(size: Size, newOwner: Int): PlanetState = {
       val initialPopulation =  owner match {
         case NeutralPlanet => population.outgoing match {
           case Nil => population.current
           case x => population.current - population.calculate(x)
         }
         case _ => population.outgoing match {
-          case Nil => population.current + growhValForSize(relativeSize) 
-          case x => population.current + growhValForSize(relativeSize) - population.calculate(x)
+          case Nil => population.current + growhValForSize(relativeSize)
+          case x => {
+            //take care of situation, where planet gets abandoned
+            val calculated = population.calculate(x)
+            if (newOwner == NeutralPlanet)
+              population.current - calculated
+            else
+              //here we know that planet is not neutral, which means that calculated population
+              //can not be 0, hence and with RangeVar(1, Int.MaxValue)
+              ((population.current - calculated) and RangeVar(1, Int.MaxValue)) + growhValForSize(relativeSize)
+          }
         }
       }
-      val nextTurn = PlanetState(id, new Node(initialPopulation, SizeRanges(size)), turn + 1, owner, size)
-      val growth = owner match {
+      nextTurn = Some(PlanetState(id, new Node(initialPopulation, SizeRanges(size)), turn + 1, newOwner, size))
+      val growth = newOwner match {
         case NeutralPlanet => None
-        case _ => Some(new Growth(nextTurn, growhValForSize(relativeSize))) 
+        case _ => Some(new Growth(nextTurn.get, growhValForSize(relativeSize))) 
       }
-      new NextTurn(this, nextTurn, growth)
-      nextTurn
+      new NextTurn(this, nextTurn.get, growth)
+      nextTurn.get
     }
     
     def current: Var = population.current
@@ -153,6 +162,12 @@ object StormCLP {
       target = t
       target.addIncoming(this)
       t.set(t.population.calculate(t.population.incoming))
+      val candidate = calculateCurrent
+      if (candidate.isMorePreciseThan(current)){
+        set(candidate)
+        backPropagate(candidate)
+        propagate(candidate)
+      }
     }
     
     def calculateCurrent =
@@ -160,14 +175,17 @@ object StormCLP {
       //filter out HORDE in case planet was not abandoned
         ft =>
           (ft != FleetType.HORDE) ||
-          	(src.nextTurn.getOrElse(src).owner == NeutralPlanet)
+          	(src.nextTurn match {
+          	  case None => true
+          	  case Some(state) => state.owner == NeutralPlanet
+          	})
       }.map{
         case FleetType.SCOUTING => src.population.current * 0.25
         case FleetType.RAIDING => src.population.current * 0.5
         case FleetType.ASSAULT => src.population.current * 0.75
         case FleetType.HORDE => src.population.current
       }.reduce(_ or _)
-      
+    //TODO move this to companion object  
     val FleetSizes: List[(FleetType, Double)] =
       List((FleetType.SCOUTING, 0.25), (FleetType.RAIDING, 0.5),
            (FleetType.ASSAULT, 0.75), (FleetType.HORDE, 1))
