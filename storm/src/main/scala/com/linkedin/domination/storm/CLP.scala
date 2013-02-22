@@ -12,11 +12,13 @@ object CLP {
     def isMorePreciseThan(v: Var): Boolean
     def fixed: Boolean
   }
-  
 
+  
   case class Val(v: Int) extends Var {
 
     val fixed = true
+    
+    //TODO take care of negative numbers
     
     override def *(d: Double): Var = Val((v.toDouble * d).toInt)
 
@@ -237,7 +239,7 @@ object CLP {
     override def toString = "Variable(" + hist + ")"
   }
   
-  class VariableNode(initialVar: Var) extends Variable(initialVar) {
+  class VariableNode(initialVar: Var, mask: RangeVar) extends Variable(initialVar) {
     var incoming: List[Edge] = Nil
     var outgoing: List[Edge] = Nil
     
@@ -248,6 +250,8 @@ object CLP {
       }
       else false
     }
+    
+    def recalculate = set(calculateCurrent)
     
     def redistribute: Unit = {
       //forward propagation
@@ -284,29 +288,40 @@ object CLP {
     }
     
     def calculateCurrent: Var = {
-      val currentIncomings = incoming map (_.current)
-      currentIncomings.reduce(_ + _)
+      val sum = incoming.map(_.current).reduce(_ + _)
+      sum match {
+        case Val(_) => sum
+        case RangeVar(min, max) => RangeVar(min max mask.min, max min mask.max)
+        case ListVar(list) => {
+          val filtered = list.filter( x => x >= mask.min && x <= mask.max)
+          if (filtered.size == 1)
+            Val(filtered.head)
+          else ListVar(filtered)
+        }
+      }
     }
     
     override def toString = "VariableNode(history=" + history +
     		", incoming=" + incoming + ", outgoing=" + outgoing +")"
   }
 
-  abstract class Edge(val source: VariableNode, val target: VariableNode) {
+  abstract class Edge(val src: VariableNode, var target: Option[VariableNode]) {
     def calculateCurrent: Var
     
-    val state = new Variable(calculateCurrent) 
+    lazy val state = new Variable(calculateCurrent) 
     def current = state.current
+    
+    def set(v: Var) = state.set(v)
     
     def sourceChanged = {
       if (!current.fixed) {
         val newCurrent = calculateCurrent
         if (newCurrent.isMorePreciseThan(current)) {
           state.set(newCurrent)
-          val changedTarget = target.calculateCurrent
-          if (!target.current.fixed &&
-            changedTarget.isMorePreciseThan(target.current))
-            target.set(changedTarget)
+          val changedTarget = target.get.calculateCurrent
+          if (!target.get.current.fixed &&
+            changedTarget.isMorePreciseThan(target.get.current))
+            target.get.set(changedTarget)
         }
       }
     }

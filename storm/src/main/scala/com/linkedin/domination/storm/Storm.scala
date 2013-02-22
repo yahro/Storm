@@ -24,10 +24,6 @@ class Storm extends Player {
     playerNumber = playerNbr
   }
   
-  // ** Game constants **
-  val InitialPlayerPopulation = 40
-  val NeutralPlanet = 0
-  
   // ** AI constants **
   val MovesAhead = 32
   
@@ -93,38 +89,9 @@ class Storm extends Player {
   
   def initializeModel(universe: Universe) = {
     for ((id, planet) <- universe.getPlanetMap()){
-      model.timeline(id.toInt) = Vector(initialState(planet))
+      model.timeline(id.toInt) =
+        Vector(PlanetState.initialPlanetState(planet.getId(), planet.getOwner(), planet.getSize()))
     }
   }
-
-  def initialState(planet: Planet): PlanetState = {
-    planet.getOwner() match {
-      case NeutralPlanet => {
-    	val population = if (planet.getSize() == Size.SMALL)
-        			  RangeVar(1, 19)
-        			else if (planet.getSize() == Size.MEDIUM)
-        			  RangeVar(20, 49)
-        			else RangeVar(50, 90)
-        val planetState = PlanetState(planet.getId(),
-        			new VariableNode(population),
-        			0,
-        			NeutralPlanet,
-        			planet.getSize())
-        planetState.population.incoming ::= new Growth(planetState, population)
-        planetState
-      }
-      case player => {
-        val population = Val(40)
-        val planetState = PlanetState(planet.getId(),
-        			new VariableNode(population),
-        			0,
-        			player,
-        			planet.getSize())
-        planetState.population.incoming ::= new Growth(planetState, population)
-        planetState
-      }
-    }
-  }
-  
   
 }
