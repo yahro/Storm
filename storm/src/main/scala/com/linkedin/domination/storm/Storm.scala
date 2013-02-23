@@ -115,6 +115,7 @@ class Storm extends Player {
           //friendly mode
           
           //TODO take arrivals into account
+          
           //TODO mount arrivals
           null
         }
