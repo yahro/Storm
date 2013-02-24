@@ -16,20 +16,21 @@ object StormCLP {
     case Size.LARGE => Val(4)
   }
 
-  val SizeRanges: Map[Size, RangeVar] = Map(Size.SMALL -> RangeVar(1, 19),
+  val FleetSizes: List[(FleetType, Double)] =
+    List((FleetType.SCOUTING, 0.25), (FleetType.RAIDING, 0.5),
+      (FleetType.ASSAULT, 0.75), (FleetType.HORDE, 1))
+  
+  val SizeRanges: Map[Size, RangeVar] = Map(Size.SMALL -> RangeVar(0, 19),
     Size.MEDIUM -> RangeVar(20, 49), Size.LARGE -> RangeVar(50, Int.MaxValue))
     
   def initialVarForSize(size: Size) =
     if (size == Size.SMALL)
-      RangeVar(1, 19)
+      RangeVar(0, 19)
     else if (size == Size.MEDIUM)
       RangeVar(20, 49)
     else RangeVar(50, 90)
   
-  def sizeForVal(v: Val) =
-    if (v.v < 20) Size.SMALL
-    else if (v.v < 50) Size.MEDIUM
-    else Size.LARGE
+  def sizeForVal(v: Val) = Size.getSizeForNumber(v.v)
     
     
   case class PlanetState(id: Int, population: Node, turn: Int, owner: Int, relativeSize: Size) {
@@ -45,17 +46,21 @@ object StormCLP {
       population.propagateBothWays
     }
     
+    /**
+     * TODO at this stage the size might not be right, because it does
+     * not take into consideration departures which might happen in this turn
+     */
     def createNextTurnState(size: Size, newOwner: Int): PlanetState = {
       val initialPopulation =  owner match {
         case NeutralPlanet => population.outgoing match {
           case Nil => population.current
-          case x => population.current - population.calculate(x)
+          case x => population.current - x.map(_.current).reduce(_ + _)
         }
         case _ => population.outgoing match {
           case Nil => population.current + growhValForSize(relativeSize)
           case x => {
             //take care of situation, where planet gets abandoned
-            val calculated = population.calculate(x)
+            val calculated = x.map(_.current).reduce(_ + _)
             if (newOwner == NeutralPlanet)
               population.current - calculated
             else
@@ -127,31 +132,29 @@ object StormCLP {
     override def toString = "NextTurn(source=" + source + ", target=" + target + 
     		", growth=" + growth + ", state=" + state + ")"
   }
-
-  class Growth(target: PlanetState, value: Val) extends Edge(None, Some(target.population)) {
+  
+  abstract class OneWayIncoming(target: PlanetState, value: Var) extends Edge(None, Some(target.population)) {
     
     target.addIncoming(this)
     
     def calculateCurrent = value
     
     override def backPropagate(v: Var) = set(v)
-    
+  }
+
+  class Growth(target: PlanetState, value: Val) extends OneWayIncoming(target, value) {
     override def toString = "Growth(target=" + target + ", value=" + value + ")"
   }
 
-  class Initial(tgt: PlanetState, value: Var) extends Edge(None, Some(tgt.population)) {
-    
-    tgt.addIncoming(this)
-    
-    def calculateCurrent = value
-    
-    override def backPropagate(v: Var) = set(v)
-    
+  class Initial(tgt: PlanetState, value: Var) extends OneWayIncoming(tgt, value) {
     override def toString = "Initial(target=" + tgt + ", value=" + value + ")"
   }
   
+  class FromCombat(tgt: PlanetState, value: Var) extends OneWayIncoming(tgt, value) {
+    override def toString = "FromCombat(target=" + tgt + ", value=" + value + ")"
+  }
   
-  class Flight(src: PlanetState, val relativeSize: Size, val duration: Int, val owner: Int) extends Edge(Some(src.population), None) {
+  class Flight(src: PlanetState, val relativeSize: Size, val duration: Int, val owner: Int, destination: Int) extends Edge(Some(src.population), None) {
     
     src.addOutgoing(this)
 
@@ -185,10 +188,6 @@ object StormCLP {
         case FleetType.ASSAULT => src.population.current * 0.75
         case FleetType.HORDE => src.population.current
       }.reduce(_ or _)
-    //TODO move this to companion object  
-    val FleetSizes: List[(FleetType, Double)] =
-      List((FleetType.SCOUTING, 0.25), (FleetType.RAIDING, 0.5),
-           (FleetType.ASSAULT, 0.75), (FleetType.HORDE, 1))
       
     def fleetTypes: List[FleetType] = {
       for ((fs, d) <- FleetSizes if ((src.population.current * d) intersects SizeRanges(relativeSize)))

@@ -91,42 +91,65 @@ class Storm extends Player {
                                   currentUniversePlanet.getSize(),
                                   Universe.getTimeToTravel(currentUniversePlanet,
                                       universe.getPlanetMap().get(event.getToPlanet())),
-                                  lastTurnState.owner)
+                                  lastTurnState.owner,
+                                  event.getToPlanet())
           val landingTurn = turn -1 + flight.duration
-          val arrivals = flight :: arrivalsMap.getOrElseUpdate(landingTurn, Nil)
-          arrivalsMap.update(landingTurn, arrivals)
+          val arrivalMap4Destination = model.arrivals.getOrElseUpdate(event.getToPlanet(), mutable.Map())
+          val arrivals = flight :: arrivalMap4Destination.getOrElseUpdate(landingTurn, Nil)
+          arrivalMap4Destination.update(landingTurn, arrivals)
       }
       
       //arrivals
-      val arrivals = for (arrList <- arrivalsMap.get(turn)) yield arrList
+      val arrivalsOption = arrivalsMap.get(turn)
       
-      val playersOnPlanet = arrivals match {
+      val playersOnPlanet = arrivalsOption match {
         case None => lastTurnState.owner :: Nil
         case Some(l) => (lastTurnState.owner :: l.map(_.owner)).distinct
       }
       
-      //create new turn
-      val currentPlanetState = lastTurnState.createNextTurnState(currentUniversePlanet.getSize(), 
-          currentUniversePlanet.getOwner())
-      states(turn) = currentPlanetState
-      
-      playersOnPlanet.size match {
+      //create current turn planet state
+      val currentPlanetState = playersOnPlanet.size match {
         case 1 => {
           //friendly mode
-          
-          //TODO take arrivals into account
-          
-          //TODO mount arrivals
-          null
+          val state = lastTurnState.createNextTurnState(currentUniversePlanet.getSize(), 
+        		  currentUniversePlanet.getOwner())          
+          for {
+            arrivals <- arrivalsOption
+            arrival <- arrivals
+          } arrival.setTarget(state)
+          state
         }
         case _ => {
           //combat mode
           
-          //TODO take combat into account
-          //TODO mount arrivals
-          null
+          //TODO if my fleet participated in combat I know exact values
+          //TODO if I knew fleet sizes I could back-propagate this knowledge
+          
+          //otherwise calculate approximate numbers..
+          
+          val forcesList = (lastTurnState.owner, lastTurnState.current) :: 
+        	  (for (arrival <- arrivalsOption.get)
+        	    yield (arrival.owner, arrival.current))
+        
+          val grouped = forcesList.groupBy(_._1)
+          
+          val forces = for (singleForce <- grouped)
+            yield (singleForce._1, singleForce._2.map(_._2).reduce(_ + _))
+          
+          val oppositeForcesCombined = forces.filter(_._1 != currentUniversePlanet.getOwner()).map(_._2).reduce(_ or _)
+            
+          val victorForces = forces(currentUniversePlanet.getOwner()) - oppositeForcesCombined
+
+          val state = PlanetState(planetId,
+            new Node(victorForces, SizeRanges(currentUniversePlanet.getSize())),
+            turn,
+            currentUniversePlanet.getOwner(),
+            currentUniversePlanet.getSize())
+          state.population.incoming ::= new FromCombat(state, victorForces)
+          state
         }
       }
+      states(turn) = currentPlanetState
       
       lastTurnState.population.applyMask
       currentPlanetState.population.applyMask
@@ -140,6 +163,8 @@ class Storm extends Player {
       states(turn - 1).population.propagateBothWays
       states(turn).population.propagateBothWays
     }
+    
+    //
     
   }
   

@@ -1,1 +1,1 @@
-java -ea -cp ./game-api/build/libs/game-api.jar:./sample/build/libs/sample.jar:./server.jar:./woodsman.jar:./lion.jar com/linkedin/domination/server/Server -p3 com.linkedin.domination.sample.Lion -p1 com.linkedin.domination.sample.WoodsmanPlayer -p2 com.linkedin.domination.sample.SamplePlayer -n 10000
+java -ea -cp lib/server.jar:lib/game-api.jar:lib/lion.jar:lib/woodsman.jar com.linkedin.domination.server.Server -p3 com.linkedin.domination.sample.Lion -p1 com.linkedin.domination.sample.WoodsmanPlayer -p2 com.linkedin.domination.sample.WoodsmanPlayer -n 10000

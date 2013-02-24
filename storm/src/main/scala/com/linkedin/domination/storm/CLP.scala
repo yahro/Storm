@@ -317,12 +317,16 @@ object CLP {
 
     def withMask(v: Var): Var = v match {
       case Val(_) => v
-      case RangeVar(min, max) => RangeVar(min max mask.min, max min mask.max)
+      case RangeVar(min, max) => if ((min max mask.min) == (max min mask.max))
+    	  Val(max min mask.max)
+        else
+          RangeVar(min max mask.min, max min mask.max)
       case ListVar(list) => {
         val filtered = list.filter(x => x >= mask.min && x <= mask.max)
         if (filtered.size == 1)
           Val(filtered.head)
-        else ListVar(filtered)
+        else
+          ListVar(filtered)
       }
     }
     
