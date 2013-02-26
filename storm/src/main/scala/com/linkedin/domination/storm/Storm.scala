@@ -11,6 +11,7 @@ import com.linkedin.domination.api.Size
 import scala.collection._
 import CLP._
 import StormCLP._
+import com.linkedin.domination.server.Game
 
 class Storm extends Player {
 
@@ -69,6 +70,8 @@ class Storm extends Player {
   
   def updateModel(universe: Universe, events: List[Event]) = {
     
+    //TODO arrivals must join previous state!!!
+    
     val departures = events.filter(_.getEventType() == EventType.LAUNCH)
     					.map(x => (x.getFromPlanet(), x)).toMap
     
@@ -85,10 +88,10 @@ class Storm extends Player {
       
       //departures
       //first create flight
-      departures.get(planetId).foreach {
+      val departure = departures.get(planetId).map {
         event =>
           val flight = new Flight(lastTurnState,
-                                  currentUniversePlanet.getSize(),
+                                  event.getFleetSize(),
                                   Universe.getTimeToTravel(currentUniversePlanet,
                                       universe.getPlanetMap().get(event.getToPlanet())),
                                   lastTurnState.owner,
@@ -97,6 +100,7 @@ class Storm extends Player {
           val arrivalMap4Destination = model.arrivals.getOrElseUpdate(event.getToPlanet(), mutable.Map())
           val arrivals = flight :: arrivalMap4Destination.getOrElseUpdate(landingTurn, Nil)
           arrivalMap4Destination.update(landingTurn, arrivals)
+          flight
       }
       
       //arrivals
@@ -111,25 +115,36 @@ class Storm extends Player {
       val currentPlanetState = playersOnPlanet.size match {
         case 1 => {
           //friendly mode
+
           val state = lastTurnState.createNextTurnState(currentUniversePlanet.getSize(), 
-        		  currentUniversePlanet.getOwner())          
+        		  currentUniversePlanet.getOwner(), departure.map(_.current),
+        		  arrivalsOption.map(_.map(_.current).reduce(_ + _)))          
+
           for {
             arrivals <- arrivalsOption
             arrival <- arrivals
           } arrival.setTarget(state)
+          
           state
         }
         case _ => {
           //combat mode
-          
+
           //TODO if my fleet participated in combat I know exact values
           //TODO if I knew fleet sizes I could back-propagate this knowledge
-          
+
           //otherwise calculate approximate numbers..
-          
-          val forcesList = (lastTurnState.owner, lastTurnState.current) :: 
-        	  (for (arrival <- arrivalsOption.get)
-        	    yield (arrival.owner, arrival.current))
+
+          val forcesList =
+            //first element is planet's owner last turn's state
+            //subtracted by possible departure 
+            (lastTurnState.owner,
+              departure match {
+                case None => lastTurnState.current
+                case Some(dep) => lastTurnState.current - dep.current
+              }) ::
+              (for (arrival <- arrivalsOption.get)
+                yield (arrival.owner, arrival.current))
         
           val grouped = forcesList.groupBy(_._1)
           
@@ -137,18 +152,51 @@ class Storm extends Player {
             yield (singleForce._1, singleForce._2.map(_._2).reduce(_ + _))
           
           val oppositeForcesCombined = forces.filter(_._1 != currentUniversePlanet.getOwner()).map(_._2).reduce(_ or _)
-            
-          val victorForces = forces(currentUniversePlanet.getOwner()) - oppositeForcesCombined
+          
+          val victorForces =
+          	if (lastTurnState.owner == currentUniversePlanet.getOwner()) {
+              val vf = forces(currentUniversePlanet.getOwner()) - oppositeForcesCombined
+              if (vf.intersects(RangeVar(1, Int.MaxValue)))
+                vf
+              else
+                Val(0)  
+            } else {
+              if (currentUniversePlanet.getOwner() == NeutralPlanet) {
+                if (playersOnPlanet.contains(NeutralPlanet))
+                  (forces(NeutralPlanet) - oppositeForcesCombined) and RangeVar(0, Int.MaxValue)
+                else
+                  Val(0)
+              } else
+                //RangeVar(0, 1), because if planet was not occupied
+                (forces(currentUniversePlanet.getOwner()) - (oppositeForcesCombined + RangeVar(0, 1)) and 
+                  RangeVar(1, Int.MaxValue))
+            }
 
           val state = PlanetState(planetId,
-            new Node(victorForces, SizeRanges(currentUniversePlanet.getSize())),
-            turn,
-            currentUniversePlanet.getOwner(),
-            currentUniversePlanet.getSize())
-          state.population.incoming ::= new FromCombat(state, victorForces)
+              new Node(victorForces, SizeRanges(currentUniversePlanet.getSize())),
+              turn,
+              currentUniversePlanet.getOwner(),
+              currentUniversePlanet.getSize() :: Nil)
+              //probably growth should be added to the state of defender before combat - but this is unnecessary
+              //so that more accurate result can be calculated...
+              
+          val growth = state.owner match {
+            case NeutralPlanet => None
+            case _ => Some(new Growth(state, growthValForSize(sizesForVar(victorForces), 
+            												  victorForces, None, None)))
+          }
+          
+          state.population.incoming ::= new FromCombat(state, victorForces, arrivalsOption.get, lastTurnState)
+          
+          //attach outgoing edge from lastTurn, so that flight rooted at that state does not get rebalanced
+          new BeforeCombat(lastTurnState)
+          
           state
         }
       }
+      
+      //set new value calculated from incoming edges
+      currentPlanetState.set(currentPlanetState.population.calculate(currentPlanetState.population.incoming))
       states(turn) = currentPlanetState
       
       lastTurnState.population.applyMask
@@ -164,8 +212,17 @@ class Storm extends Player {
       states(turn).population.propagateBothWays
     }
     
-    //
-    
+    for ((planetId, states) <- model.timeline) {
+      val cur = states(turn)
+      val state = cur.population.current
+      val curFromGame = Game._universe.getPlanetMap().get(planetId)
+      if (!state.intersects(Val(curFromGame.getPopulation())))
+      {
+        //TODO print out history to understand problem states(59)
+        println("bug")
+      }
+    }
+        
   }
   
   def initializeModel(universe: Universe) = {

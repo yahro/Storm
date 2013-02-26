@@ -87,7 +87,14 @@ object CLP {
     }
 
     //TODO rounding???
-    override def *(d: Double): Var = RangeVar((min.toDouble * d).toInt, (max.toDouble * d).toInt)
+    override def *(d: Double): Var = {
+      val newMin = (min.toDouble * d).toInt
+      val newMax = (max.toDouble * d).toInt
+      if (newMin == newMax)
+        Val(newMin)
+      else
+        RangeVar(newMin, newMax)
+    }
     
     override def +(variable: Var): Var = {
       variable match {
@@ -108,7 +115,11 @@ object CLP {
     override def and(variable: Var): Var = {
       variable match {
         case x @ Val(v) if (v >= min && v <= max) => x
-        case RangeVar(min2, max2) => RangeVar(min max min2, max min max2)
+        case RangeVar(min2, max2) =>
+          if ((min max min2) == (max min max2))
+            Val(min max min2)
+          else  
+            RangeVar(min max min2, max min max2)
         case ListVar(vals) => {
           val filtered = vals filter (x => x >= min && x <= max)
           if (filtered.size == 1)
@@ -170,9 +181,15 @@ object CLP {
     }
 
     //TODO rounding???
-    override def *(d: Double): Var = ListVar(vals.map{
-      x => ((x.toDouble) * d).toInt
-    })
+    override def *(d: Double): Var = {
+      val prepared = vals.map{
+        x => ((x.toDouble) * d).toInt
+      }.distinct.sorted
+      if (prepared.size == 1)
+        Val(prepared.head)
+      else
+        ListVar(prepared)
+    }
 
     override def +(variable: Var): Var = {
       variable match {
@@ -202,8 +219,13 @@ object CLP {
       variable match {
         case x @ Val(v) if vals.contains(v) => x
         case x @ RangeVar(_, _) => x and this 
-        case ListVar(vals2) if (vals.containsSlice(vals2) || vals2.containsSlice(vals)) =>
-          ListVar(vals.intersect(vals2))
+        case ListVar(vals2) => {
+          val intersection = vals.intersect(vals2)
+          if (intersection.size == 1)
+            Val(intersection.head)
+          else
+            ListVar(intersection)
+        }
         case _ => throw new CLPException(toString + " and " + variable + " is empty")
       }
     }
@@ -315,18 +337,27 @@ object CLP {
 	  improved
     }
 
-    def withMask(v: Var): Var = v match {
-      case Val(_) => v
-      case RangeVar(min, max) => if ((min max mask.min) == (max min mask.max))
-    	  Val(max min mask.max)
+    def withMask(v: Var): Var = try {
+      v match {
+        case Val(_) => v
+        case RangeVar(min, max) => if ((min max mask.min) == (max min mask.max))
+          Val(max min mask.max)
         else
           RangeVar(min max mask.min, max min mask.max)
-      case ListVar(list) => {
-        val filtered = list.filter(x => x >= mask.min && x <= mask.max)
-        if (filtered.size == 1)
-          Val(filtered.head)
-        else
-          ListVar(filtered)
+        case ListVar(list) => {
+          val filtered = list.filter(x => x >= mask.min && x <= mask.max)
+          if (filtered.size == 1)
+            Val(filtered.head)
+          else
+            ListVar(filtered)
+        }
+      }
+    } catch {
+      case _: RuntimeException => {
+        //print out history
+        //print out list of moves
+        //after all return mask
+        mask
       }
     }
     
