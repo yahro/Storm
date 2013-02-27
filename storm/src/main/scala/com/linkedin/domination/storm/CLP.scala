@@ -3,6 +3,8 @@ package com.linkedin.domination.storm
 import scala.annotation.tailrec
 
 object CLP {
+  
+  val MaxVarListLength = 128
 
   abstract trait Var {
     def +(v: Var): Var
@@ -14,12 +16,16 @@ object CLP {
     def isMorePreciseThan(v: Var): Boolean
     def fixed: Boolean
   }
-
+  
+  def restrictLength(v: ListVar): Var =
+    if (v.vals.size > MaxVarListLength)
+    	RangeVar(v.vals.head, v.vals.last)
+    else
+      v
+  
   case class Val(v: Int) extends Var {
 
     val fixed = true
-    
-    //TODO take care of negative numbers
     
     override def *(d: Double): Var = Val((v.toDouble * d).toInt)
 
@@ -60,7 +66,8 @@ object CLP {
       variable match {
         case Val(v2) => if (v == v2) this else ListVar(List(v, v2).sorted)
         case RangeVar(min, max) => RangeVar(v min min, v max max)
-        case ListVar(vals) => ListVar((v :: vals).distinct.sorted)
+        case ListVar(vals) =>
+          restrictLength(ListVar((v :: vals).distinct.sorted))
       }
     }
 
@@ -162,10 +169,8 @@ object CLP {
     override def toString = "RangeVar(min=" + min + ", max=" + max + ")"
   }
   
-  /**
-   * vals must be sorted
-   */
   case class ListVar(vals: List[Int]) extends Var {
+    //TODO remove expensive checks before submitting
     require (vals == vals.sorted, "list must be sorted")
     require (vals == vals.distinct, "list can not contain repeated elements")
     require (vals.size > 1, "list must have at least two elements")
@@ -195,11 +200,16 @@ object CLP {
       variable match {
         case Val(_) => variable + this
         case RangeVar(_, _) => variable + this
-        case ListVar(vals2) => ListVar(vals.foldLeft(List[Int]()){
-          (list, x) => vals2.foldLeft(list){
-            (l, y) => x + y :: l
+        case ListVar(vals2) => {
+          restrictLength {
+            ListVar(vals.foldLeft(List[Int]()) {
+              (list, x) =>
+                vals2.foldLeft(list) {
+                  (l, y) => x + y :: l
+                }
+            }.distinct.sorted)
           }
-        }.distinct.sorted)
+        }
       }
     }
     
@@ -207,11 +217,16 @@ object CLP {
       variable match {
         case Val(v) => ListVar(vals.map(_ - v))
         case RangeVar(min, max) => RangeVar(vals.head - max, vals.last - min)
-        case ListVar(vals2) => ListVar(vals.foldLeft(List[Int]()){
-          (list, x) => vals2.foldLeft(list){
-            (l, y) => x - y :: l
+        case ListVar(vals2) => {
+          restrictLength {
+            ListVar(vals.foldLeft(List[Int]()) {
+              (list, x) =>
+                vals2.foldLeft(list) {
+                  (l, y) => x - y :: l
+                }
+            }.distinct.sorted)
           }
-        }.distinct.sorted)
+        }
       }
     }
     
@@ -234,7 +249,7 @@ object CLP {
       variable match {
         case Val(_) => variable or this
         case RangeVar(_,_) => variable or this
-        case ListVar(vals2) => ListVar((vals ::: vals2).distinct.sorted)
+        case ListVar(vals2) => restrictLength(ListVar((vals ::: vals2).distinct.sorted))
       }
     }
     

@@ -11,7 +11,7 @@ import com.linkedin.domination.api.Size
 import scala.collection._
 import CLP._
 import StormCLP._
-import com.linkedin.domination.server.Game
+import StormTesters._
 
 class Storm extends Player {
 
@@ -70,8 +70,6 @@ class Storm extends Player {
   
   def updateModel(universe: Universe, events: List[Event]) = {
     
-    //TODO arrivals must join previous state!!!
-    
     val departures = events.filter(_.getEventType() == EventType.LAUNCH)
     					.map(x => (x.getFromPlanet(), x)).toMap
     
@@ -90,12 +88,15 @@ class Storm extends Player {
       //first create flight
       val departure = departures.get(planetId).map {
         event =>
+          //if this is our flight we know exact value
           val flight = new Flight(lastTurnState,
                                   event.getFleetSize(),
                                   Universe.getTimeToTravel(currentUniversePlanet,
                                       universe.getPlanetMap().get(event.getToPlanet())),
                                   lastTurnState.owner,
                                   event.getToPlanet())
+          if (flight.owner == playerNumber)
+            flight.set(Val(event.getSentShipCount()));
           val landingTurn = turn -1 + flight.duration
           val arrivalMap4Destination = model.arrivals.getOrElseUpdate(event.getToPlanet(), mutable.Map())
           val arrivals = flight :: arrivalMap4Destination.getOrElseUpdate(landingTurn, Nil)
@@ -211,16 +212,13 @@ class Storm extends Player {
       states(turn - 1).population.propagateBothWays
       states(turn).population.propagateBothWays
     }
-    
-    for ((planetId, states) <- model.timeline) {
-      val cur = states(turn)
-      val state = cur.population.current
-      val curFromGame = Game._universe.getPlanetMap().get(planetId)
-      if (!state.intersects(Val(curFromGame.getPopulation())))
-      {
-        //TODO print out history to understand problem states(59)
-        println("bug")
-      }
+
+    StormTesters.accuracyTester.foreach {
+      tester =>
+        for ((planetId, states) <- model.timeline) {
+          val cur = states(turn)
+          tester.addMeasurment(planetId, cur.population.current)
+        }
     }
         
   }

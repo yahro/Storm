@@ -77,9 +77,7 @@ object StormCLP {
             if (newOwner == NeutralPlanet)
               population.current - calculated
             else
-              //here we know that planet is not neutral, which means that calculated population
-              //can not be 0, hence and with RangeVar(1, Int.MaxValue)
-              ((population.current - calculated) and RangeVar(1, Int.MaxValue)) +
+              ((population.current - calculated) and RangeVar(0, Int.MaxValue)) +
               	growthValForSize(relativeSizes, population.current, departure, arrivals)
           }
         }

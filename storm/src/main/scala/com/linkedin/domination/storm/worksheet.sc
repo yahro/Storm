@@ -5,7 +5,5 @@ import CLP._
 object worksheet {
 
 
-  (RangeVar(20, 49) - ListVar(List(25, 49))).intersects(RangeVar(1, Int.MaxValue))
-                                                  //> res0: Boolean = true
-
+  Math.sqrt(1000*1000 + 800*800) / 20             //> res0: Double = 64.03124237432849
 }
