@@ -21,11 +21,20 @@ object StormCLP {
         case Some(w) => sizesForVar(pop + w - v)
       }
     })
-    allSizes.map {
+    
+    val assumingWasNotAbandoned = allSizes.map {
       case Size.SMALL => Val(1).asInstanceOf[Var]
       case Size.MEDIUM => Val(2).asInstanceOf[Var]
       case Size.LARGE => Val(4).asInstanceOf[Var]
     }.reduce(_ or _)
+    
+    //it might happen that planet was abandoned and took over
+    //by one player in the same turn, in that case growth could be 0
+    val consideringDeparture = possiblyInvalid(pop - dep.getOrElse(Zero))
+    if (consideringDeparture.intersects(Zero))
+      assumingWasNotAbandoned or Zero
+    else
+      assumingWasNotAbandoned
   }
 
   val FleetSizes: List[(FleetType, Double)] =
@@ -61,7 +70,7 @@ object StormCLP {
     
     def set(v: Var) = {
       population.set(v)
-      population.propagateBothWays
+      population.propagateBothWays(MaxPropagationDepth)
     }
     
     def populationForNextTurn(size: Size, newOwner: Int, departure: Option[Var], arrivals: Option[Var]) = owner match {
@@ -77,7 +86,7 @@ object StormCLP {
             if (newOwner == NeutralPlanet)
               population.current - calculated
             else
-              ((population.current - calculated) and RangeVar(0, Int.MaxValue)) +
+              ((population.current - calculated) and NonNegative) +
               	growthValForSize(relativeSizes, population.current, departure, arrivals)
           }
         }
@@ -177,9 +186,22 @@ object StormCLP {
     
     def calculateCurrent = value
     
-    override def backPropagate(v: Var) = set(v)
+    override def backPropagate(v: Var, depth: Int) = set(v)
   }
 
+  abstract class OneWayOutgoing(source: PlanetState, value: Var) extends Edge(Some(source.population), None) {
+    
+    source.addIncoming(this)
+    
+    def calculateCurrent = value
+    
+    override def propagate(v: Var, depth: Int) = set(v)
+  }
+  
+  class TakingOverPlanet(source: PlanetState, value: Var) extends OneWayOutgoing(source, value) {
+    override def toString = "TakingOverPlanet(source=" + source + ", value=" + value + ")"
+  }
+  
   class Growth(target: PlanetState, value: Var) extends OneWayIncoming(target, value) {
     override def toString = "Growth(target=" + target + ", value=" + value + ")"
   }

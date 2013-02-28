@@ -14,13 +14,13 @@ class StormCLPTest  extends FunSuite {
     val p0 = PlanetState.initialPlanetState(0, NeutralPlanet, Size.SMALL)
     val p1 = p0.createNextTurnState(Size.SMALL, NeutralPlanet, None, None)
     
-    p0.population.propagateBothWays
-    p1.population.propagateBothWays
+    p0.population.propagateBothWays(MaxPropagationDepth)
+    p1.population.propagateBothWays(MaxPropagationDepth)
     
     assert(p1.current === initialVarForSize(Size.SMALL))
     p0.set(Val(15))
 
-    p0.population.propagateBothWays
+    p0.population.propagateBothWays(MaxPropagationDepth)
 
     assert(p1.current === Val(15))
   }
@@ -46,16 +46,16 @@ class StormCLPTest  extends FunSuite {
     for (i <- 22 to 48 by 2) {
       planets = planets.head.createNextTurnState(Size.MEDIUM, owner, None, None) :: planets
       planets.head.population.applyMask
-      planets.head.population.propagateBothWays
+      planets.head.population.propagateBothWays(MaxPropagationDepth)
       planets.tail.head.population.applyMask
-      planets.tail.head.population.propagateBothWays
+      planets.tail.head.population.propagateBothWays(MaxPropagationDepth)
       assert(planets.head.current === Val(i))
     }
     planets = planets.head.createNextTurnState(Size.LARGE, owner, None, None) :: planets
     planets.head.population.applyMask
-    planets.head.population.propagateBothWays
+    planets.head.population.propagateBothWays(MaxPropagationDepth)
     planets.tail.head.population.applyMask
-    planets.tail.head.population.propagateBothWays
+    planets.tail.head.population.propagateBothWays(MaxPropagationDepth)
     assert(planets.head.current === Val(50))
   }
   
@@ -76,8 +76,8 @@ class StormCLPTest  extends FunSuite {
     //TODO update tests - setTarget was split
     f.setTarget(p11)
 
-    p00.population.propagateBothWays
-    p10.population.propagateBothWays
+    p00.population.propagateBothWays(MaxPropagationDepth)
+    p10.population.propagateBothWays(MaxPropagationDepth)
     
     assert(p01.current === Val(32))
   }
@@ -98,15 +98,15 @@ class StormCLPTest  extends FunSuite {
     val p11 = p10.createNextTurnState(Size.MEDIUM, 0, None, None)
 
     f.setTarget(p11)
-    p11.population.incomingChanged
+    p11.population.incomingChanged(MaxPropagationDepth)
     
     p01.population.applyMask
     p11.population.applyMask
 
-    p00.population.propagateBothWays
-    p10.population.propagateBothWays
-    p01.population.propagateBothWays
-    p11.population.propagateBothWays
+    p00.population.propagateBothWays(MaxPropagationDepth)
+    p10.population.propagateBothWays(MaxPropagationDepth)
+    p01.population.propagateBothWays(MaxPropagationDepth)
+    p11.population.propagateBothWays(MaxPropagationDepth)
     
     assert(f.current === Val(20))
     assert(p01.current === Val(22))
@@ -132,10 +132,10 @@ class StormCLPTest  extends FunSuite {
     p01.population.applyMask
     p11.population.applyMask
 
-    p00.population.propagateBothWays
-    p10.population.propagateBothWays
-    p01.population.propagateBothWays
-    p11.population.propagateBothWays
+    p00.population.propagateBothWays(MaxPropagationDepth)
+    p10.population.propagateBothWays(MaxPropagationDepth)
+    p01.population.propagateBothWays(MaxPropagationDepth)
+    p11.population.propagateBothWays(MaxPropagationDepth)
     
     assert(f.current === Val(30))
     assert(p01.current === Val(12))
@@ -159,10 +159,10 @@ class StormCLPTest  extends FunSuite {
     p01.population.applyMask
     p11.population.applyMask
 
-    p00.population.propagateBothWays
-    p10.population.propagateBothWays
-    p01.population.propagateBothWays
-    p11.population.propagateBothWays
+    p00.population.propagateBothWays(MaxPropagationDepth)
+    p10.population.propagateBothWays(MaxPropagationDepth)
+    p01.population.propagateBothWays(MaxPropagationDepth)
+    p11.population.propagateBothWays(MaxPropagationDepth)
     
     assert(f.current === Val(10))
     assert(p01.current === Val(32))
@@ -175,24 +175,24 @@ class StormCLPTest  extends FunSuite {
     for (i <- 22 to 48 by 2) {
       planets = planets.head.createNextTurnState(Size.MEDIUM, owner, None, None) :: planets
       planets.head.population.applyMask
-      planets.head.population.propagateBothWays
+      planets.head.population.propagateBothWays(MaxPropagationDepth)
       planets.tail.head.population.applyMask
-      planets.tail.head.population.propagateBothWays
+      planets.tail.head.population.propagateBothWays(MaxPropagationDepth)
       assert(planets.head.current === Val(i))
     }
     planets = planets.head.createNextTurnState(Size.LARGE, owner, None, None) :: planets
     planets.head.population.applyMask
-    planets.head.population.propagateBothWays
+    planets.head.population.propagateBothWays(MaxPropagationDepth)
     planets.tail.head.population.applyMask
-    planets.tail.head.population.propagateBothWays
+    planets.tail.head.population.propagateBothWays(MaxPropagationDepth)
     assert(planets.head.current === Val(50))
     
     val migration = new Flight(planets.head, Size.LARGE, 1, owner, 1)
     planets = planets.head.createNextTurnState(Size.SMALL, NeutralPlanet, None, None) :: planets
     planets.head.population.applyMask
-    planets.head.population.propagateBothWays
+    planets.head.population.propagateBothWays(MaxPropagationDepth)
     planets.tail.head.population.applyMask
-    planets.tail.head.population.propagateBothWays
+    planets.tail.head.population.propagateBothWays(MaxPropagationDepth)
 
     assert(planets.head.current === Val(0))
     assert(planets.head.owner === NeutralPlanet)

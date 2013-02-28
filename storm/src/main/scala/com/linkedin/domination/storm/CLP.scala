@@ -4,7 +4,14 @@ import scala.annotation.tailrec
 
 object CLP {
   
-  val MaxVarListLength = 128
+  val MaxVarListLength = 64
+  val MaxPropagationDepth = 64
+  val NonNegative = RangeVar(0, Int.MaxValue)
+  val Positive = RangeVar(1, Int.MaxValue)
+  val Zero = Val(0)
+  
+  val MaxPopulation: Int = 60 * (40 + 10000 * 4)
+ 
 
   abstract trait Var {
     def +(v: Var): Var
@@ -15,13 +22,32 @@ object CLP {
     def intersects(v: Var): Boolean
     def isMorePreciseThan(v: Var): Boolean
     def fixed: Boolean
+    def isPositive = intersects(Positive)
+    def isNonNegative = intersects(NonNegative)
   }
   
-  def restrictLength(v: ListVar): Var =
-    if (v.vals.size > MaxVarListLength)
-    	RangeVar(v.vals.head, v.vals.last)
-    else
+  def possiblyInvalid(v: => Var): Var = {
+    try {
       v
+    } catch {
+      case _ => Zero
+    }
+  }
+  
+  def listVarOrVal(list: List[Int]) = {
+    val l = list.filter(x => x >= 0 && x < MaxPopulation)
+    if (l.size == 1)
+      Val(l.head)
+    else
+      restrictLength(l)
+  }
+    
+  
+  def restrictLength(vals: List[Int]): Var =
+    if (vals.size > MaxVarListLength)
+      RangeVar(vals.head, vals.last)
+    else
+      ListVar(vals)
   
   case class Val(v: Int) extends Var {
 
@@ -40,16 +66,16 @@ object CLP {
     override def +(variable: Var): Var = {
       variable match {
         case Val(v2) => Val(v + v2)
-        case RangeVar(min, max) => RangeVar(v + min, v + max)
-        case ListVar(vals) => ListVar(vals map (_ + v))
+        case RangeVar(min, max) => rangeVarOrVal(v + min, v + max)
+        case ListVar(vals) => listVarOrVal(vals map (_ + v))
       }
     }
 
     override def -(variable: Var): Var = {
       variable match {
         case Val(v2) => Val(v - v2)
-        case RangeVar(min, max) => RangeVar(v - max, v - min)
-        case ListVar(vals) => ListVar((vals map (v - _)).reverse)
+        case RangeVar(min, max) => rangeVarOrVal(v - max, v - min)
+        case ListVar(vals) => listVarOrVal((vals map (v - _)).reverse.filter(_ >= 0))
       }
     }
 
@@ -67,7 +93,7 @@ object CLP {
         case Val(v2) => if (v == v2) this else ListVar(List(v, v2).sorted)
         case RangeVar(min, max) => RangeVar(v min min, v max max)
         case ListVar(vals) =>
-          restrictLength(ListVar((v :: vals).distinct.sorted))
+          listVarOrVal((v :: vals).distinct.sorted)
       }
     }
 
@@ -80,6 +106,12 @@ object CLP {
     override def toString = "Val(" + v + ")"
   }
 
+  def rangeVarOrVal(min: Int, max: Int): Var =
+    if ((min max 0) == (max min MaxPopulation))
+      Val(max)
+    else
+      RangeVar((min max 0), (max min MaxPopulation))
+  
   case class RangeVar(min: Int, max: Int) extends Var {
     require (min < max, "invalid range: min=" + min + ", max=" + max)
     
@@ -89,7 +121,7 @@ object CLP {
       variable match {
         case Val(_) => variable intersects this 
         case RangeVar(min2, max2) => !((max < min2) || (max2 < min))
-        case ListVar(vals) => RangeVar(vals.head, vals.last) intersects this
+        case ListVar(vals) => rangeVarOrVal(vals.head, vals.last) intersects this
       }
     }
 
@@ -106,16 +138,16 @@ object CLP {
     override def +(variable: Var): Var = {
       variable match {
         case Val(_) => variable + this
-        case RangeVar(min2, max2) => RangeVar(min + min2, max + max2)
-        case ListVar(vals) => RangeVar(min + vals.head, max + vals.last)
+        case RangeVar(min2, max2) => rangeVarOrVal(min + min2, max + max2)
+        case ListVar(vals) => rangeVarOrVal(min + vals.head, max + vals.last)
       }
     }
     
     override def -(variable: Var): Var = {
       variable match {
-        case Val(v) => RangeVar(min - v, max - v)
-        case RangeVar(min2, max2) => RangeVar(min - max2, max - min2)
-        case ListVar(vals) => RangeVar(min - vals.last, max - vals.head)
+        case Val(v) => rangeVarOrVal(min - v, max - v)
+        case RangeVar(min2, max2) => rangeVarOrVal(min - max2, max - min2)
+        case ListVar(vals) => rangeVarOrVal(min - vals.last, max - vals.head)
       }
     }
     
@@ -127,13 +159,8 @@ object CLP {
             Val(min max min2)
           else  
             RangeVar(min max min2, max min max2)
-        case ListVar(vals) => {
-          val filtered = vals filter (x => x >= min && x <= max)
-          if (filtered.size == 1)
-            Val(filtered.head)
-          else
-        	ListVar(filtered)
-        }
+        case ListVar(vals) =>
+          listVarOrVal(vals filter (x => x >= min && x <= max))
         case _ => throw new CLPException(toString + " and " + variable + " is empty")
       }
     }
@@ -141,8 +168,8 @@ object CLP {
     override def or(variable: Var): Var = {
       variable match {
         case Val(_) => variable or this 
-        case RangeVar(min2, max2) => RangeVar(min min min2, max max max2)
-        case ListVar(vals) => RangeVar(min min vals.head, max max vals.last)
+        case RangeVar(min2, max2) => rangeVarOrVal(min min min2, max max max2)
+        case ListVar(vals) => rangeVarOrVal(min min vals.head, max max vals.last)
       }
     }
 
@@ -171,6 +198,7 @@ object CLP {
   
   case class ListVar(vals: List[Int]) extends Var {
     //TODO remove expensive checks before submitting
+    require (vals.head >= 0)
     require (vals == vals.sorted, "list must be sorted")
     require (vals == vals.distinct, "list can not contain repeated elements")
     require (vals.size > 1, "list must have at least two elements")
@@ -190,10 +218,7 @@ object CLP {
       val prepared = vals.map{
         x => ((x.toDouble) * d).toInt
       }.distinct.sorted
-      if (prepared.size == 1)
-        Val(prepared.head)
-      else
-        ListVar(prepared)
+      listVarOrVal(prepared)
     }
 
     override def +(variable: Var): Var = {
@@ -201,31 +226,27 @@ object CLP {
         case Val(_) => variable + this
         case RangeVar(_, _) => variable + this
         case ListVar(vals2) => {
-          restrictLength {
-            ListVar(vals.foldLeft(List[Int]()) {
+            listVarOrVal(vals.foldLeft(List[Int]()) {
               (list, x) =>
                 vals2.foldLeft(list) {
                   (l, y) => x + y :: l
                 }
             }.distinct.sorted)
-          }
         }
       }
     }
     
     override def -(variable: Var): Var = {
       variable match {
-        case Val(v) => ListVar(vals.map(_ - v))
-        case RangeVar(min, max) => RangeVar(vals.head - max, vals.last - min)
+        case Val(v) => listVarOrVal((vals.map(_ - v)).filter(_ >= 0))
+        case RangeVar(min, max) => rangeVarOrVal(vals.head - max, vals.last - min)
         case ListVar(vals2) => {
-          restrictLength {
-            ListVar(vals.foldLeft(List[Int]()) {
+            listVarOrVal(vals.foldLeft(List[Int]()) {
               (list, x) =>
                 vals2.foldLeft(list) {
                   (l, y) => x - y :: l
                 }
             }.distinct.sorted)
-          }
         }
       }
     }
@@ -234,13 +255,7 @@ object CLP {
       variable match {
         case x @ Val(v) if vals.contains(v) => x
         case x @ RangeVar(_, _) => x and this 
-        case ListVar(vals2) => {
-          val intersection = vals.intersect(vals2)
-          if (intersection.size == 1)
-            Val(intersection.head)
-          else
-            ListVar(intersection)
-        }
+        case ListVar(vals2) => listVarOrVal(vals.intersect(vals2))
         case _ => throw new CLPException(toString + " and " + variable + " is empty")
       }
     }
@@ -249,7 +264,7 @@ object CLP {
       variable match {
         case Val(_) => variable or this
         case RangeVar(_,_) => variable or this
-        case ListVar(vals2) => restrictLength(ListVar((vals ::: vals2).distinct.sorted))
+        case ListVar(vals2) => listVarOrVal((vals ::: vals2).distinct.sorted)
       }
     }
     
@@ -289,34 +304,35 @@ object CLP {
     var incoming: List[Edge] = Nil
     var outgoing: List[Edge] = Nil
     
-    def incomingChanged = recalculate(incoming)
+    def incomingChanged(depth: Int) = recalculate(incoming, depth)
 
-    def outgoingChanged = recalculate(outgoing)
+    def outgoingChanged(depth: Int) = recalculate(outgoing, depth)
     
     def applyMask = {
       val candidate = withMask(current)
       if (candidate.isMorePreciseThan(current)) {
         set(candidate)
-        propagateBothWays
+        propagateBothWays(MaxPropagationDepth)
       }
     }
     
-    private def recalculate(edges: List[Edge]) = {
+    private def recalculate(edges: List[Edge], depth: Int) = {
       val sum = calculate(edges)
       if (sum.isMorePreciseThan(current)) {
         set(sum)
       }
-      propagateBothWays
+      propagateBothWays(depth)
     }
     
     @tailrec
-    final def propagateBothWays: Unit = {
-      if (propagate(incoming, (e, v) => e.backPropagate(v)) ||
-          propagate(outgoing, (e, v) => e.propagate(v)))
-      propagateBothWays
+    final def propagateBothWays(depth: Int): Unit = {
+      if ((depth > 0) &&
+          (propagate(incoming, (e, v, d) => e.backPropagate(v, d), depth - 1) ||
+           propagate(outgoing, (e, v, d) => e.propagate(v, d), depth - 1)))
+      propagateBothWays(depth - 1)
     }
     
-    private def propagate(edges: List[Edge], propagator: (Edge, Var) => Unit): Boolean = {
+    private def propagate(edges: List[Edge], propagator: (Edge, Var, Int) => Unit, depth: Int): Boolean = {
       var improved = false
 	  val (fixed, notFixed) = edges.partition(_.current.fixed)
 	  val fixedSum = fixed.size match {
@@ -331,7 +347,7 @@ object CLP {
 	      }
 	      if (candidate.isMorePreciseThan(notFixed.head.current)) {
 	        improved = true
-	        propagator(notFixed.head, candidate)
+	        propagator(notFixed.head, candidate, depth)
 	      }
 	    } else {
 	      //try to improve approximation
@@ -344,7 +360,7 @@ object CLP {
 	          }))
 	          if (candidate.isMorePreciseThan(edge.current)) {
 	            improved = true
-	            propagator(edge, candidate)
+	            propagator(edge, candidate, depth)
 	          }
 	      }
 	    }
@@ -359,13 +375,7 @@ object CLP {
           Val(max min mask.max)
         else
           RangeVar(min max mask.min, max min mask.max)
-        case ListVar(list) => {
-          val filtered = list.filter(x => x >= mask.min && x <= mask.max)
-          if (filtered.size == 1)
-            Val(filtered.head)
-          else
-            ListVar(filtered)
-        }
+        case ListVar(list) => listVarOrVal(list.filter(x => x >= mask.min && x <= mask.max))
       }
     } catch {
       case _: RuntimeException => {
@@ -394,7 +404,7 @@ object CLP {
     
     def set(v: Var) = state.set(v)
     
-    def propagate(v: Var) = {
+    def propagate(v: Var, depth: Int) = {
       if (!current.fixed) {
         val newCurrent = calculateCurrent
         if (newCurrent.isMorePreciseThan(v))
@@ -402,13 +412,14 @@ object CLP {
         else
           set(v)
 
-        tgt.foreach(_.incomingChanged)
+        tgt.foreach(_.incomingChanged(depth))
       }
     }
     
-    def backPropagate(v: Var): Unit = {
+    def backPropagate(v: Var, depth: Int): Unit = {
+      //TODO is it possible to narrow this?
       set(v)
-      src.foreach(_.outgoingChanged)
+      src.foreach(_.outgoingChanged(depth))
     }
     
   }

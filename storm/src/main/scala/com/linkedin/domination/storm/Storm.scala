@@ -103,7 +103,17 @@ class Storm extends Player {
           arrivalMap4Destination.update(landingTurn, arrivals)
           flight
       }
-      
+
+      StormTesters.accuracyTester.foreach {
+        tester =>
+            departure.foreach {
+              d => {
+                val e = departures.get(planetId).get
+                tester.addMeasurmentForFlight(e.getFromPlanet(), e.getToPlanet(), d.current)
+              }
+            }
+      }
+
       //arrivals
       val arrivalsOption = arrivalsMap.get(turn)
       
@@ -116,10 +126,26 @@ class Storm extends Player {
       val currentPlanetState = playersOnPlanet.size match {
         case 1 => {
           //friendly mode
-
-          val state = lastTurnState.createNextTurnState(currentUniversePlanet.getSize(), 
+          
+          val state = if (currentUniversePlanet.getOwner() != lastTurnState.owner) {
+            //abandoned planet
+            val planet = PlanetState(planetId,
+        			new Node(Zero, SizeRanges(Size.SMALL)),
+        			turn,
+        			NeutralPlanet,
+        			Size.SMALL :: Nil)
+            planet.addIncoming(new Initial(planet, Zero))
+            planet
+          } else
+            lastTurnState.createNextTurnState(currentUniversePlanet.getSize(), 
         		  currentUniversePlanet.getOwner(), departure.map(_.current),
-        		  arrivalsOption.map(_.map(_.current).reduce(_ + _)))          
+        		  arrivalsOption.map(_.map(_.current).reduce(_ + _)))
+        		  
+            //it might happen that planet was abandoned in that case we need
+            //to account for that
+            val consideringDeparture = possiblyInvalid(lastTurnState.current - departure.map(_.current).getOrElse(Zero))
+            if (consideringDeparture.intersects(Zero))
+              state.addOutgoing(new TakingOverPlanet(state, ListVar(List(0, 1))))
 
           for {
             arrivals <- arrivalsOption
@@ -156,30 +182,29 @@ class Storm extends Player {
           
           val victorForces =
           	if (lastTurnState.owner == currentUniversePlanet.getOwner()) {
-              val vf = forces(currentUniversePlanet.getOwner()) - oppositeForcesCombined
-              if (vf.intersects(RangeVar(1, Int.MaxValue)))
-                vf
-              else
-                Val(0)  
+              possiblyInvalid((forces(currentUniversePlanet.getOwner()) - oppositeForcesCombined))
             } else {
               if (currentUniversePlanet.getOwner() == NeutralPlanet) {
                 if (playersOnPlanet.contains(NeutralPlanet))
-                  (forces(NeutralPlanet) - oppositeForcesCombined) and RangeVar(0, Int.MaxValue)
+                  (forces(NeutralPlanet) - oppositeForcesCombined) and NonNegative
                 else
-                  Val(0)
+                  Zero
               } else
                 //RangeVar(0, 1), because if planet was not occupied
                 (forces(currentUniversePlanet.getOwner()) - (oppositeForcesCombined + RangeVar(0, 1)) and 
-                  RangeVar(1, Int.MaxValue))
+                  Positive)
             }
-
+          
+          val newPopulationIncludingGrowth = currentUniversePlanet.getOwner() match {
+            case NeutralPlanet => victorForces
+            case _ => victorForces + growthValForSize(sizesForVar(victorForces), victorForces, None, None)
+          }
+          
           val state = PlanetState(planetId,
-              new Node(victorForces, SizeRanges(currentUniversePlanet.getSize())),
+              new Node(newPopulationIncludingGrowth, SizeRanges(currentUniversePlanet.getSize())),
               turn,
               currentUniversePlanet.getOwner(),
               currentUniversePlanet.getSize() :: Nil)
-              //probably growth should be added to the state of defender before combat - but this is unnecessary
-              //so that more accurate result can be calculated...
               
           val growth = state.owner match {
             case NeutralPlanet => None
@@ -191,6 +216,11 @@ class Storm extends Player {
           
           //attach outgoing edge from lastTurn, so that flight rooted at that state does not get rebalanced
           new BeforeCombat(lastTurnState)
+
+          StormTesters.accuracyTester.foreach {
+            tester =>
+                tester.addMeasurmentForPlanet(planetId, state.population.current, state, states)
+          }
           
           state
         }
@@ -203,21 +233,22 @@ class Storm extends Player {
       lastTurnState.population.applyMask
       currentPlanetState.population.applyMask
 
-      lastTurnState.population.propagateBothWays
-      currentPlanetState.population.propagateBothWays
+      lastTurnState.population.propagateBothWays(MaxPropagationDepth)
+      currentPlanetState.population.propagateBothWays(MaxPropagationDepth)
      
     }
     
     for ((planetId, states) <- model.timeline) {
-      states(turn - 1).population.propagateBothWays
-      states(turn).population.propagateBothWays
+      states(turn - 1).population.propagateBothWays(MaxPropagationDepth)
+      states(turn).population.propagateBothWays(MaxPropagationDepth)
     }
 
+    //TODO testing
     StormTesters.accuracyTester.foreach {
       tester =>
         for ((planetId, states) <- model.timeline) {
           val cur = states(turn)
-          tester.addMeasurment(planetId, cur.population.current)
+          tester.addMeasurmentForPlanet(planetId, cur.population.current, cur, states)
         }
     }
         
