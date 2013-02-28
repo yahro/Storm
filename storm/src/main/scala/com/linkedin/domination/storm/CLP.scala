@@ -4,8 +4,10 @@ import scala.annotation.tailrec
 
 object CLP {
   
+  //TODO implement greater than, result is [0, 1] - probability
+  
   val MaxVarListLength = 64
-  val MaxPropagationDepth = 64
+  val MaxPropagationDepth = 16
   val NonNegative = RangeVar(0, Int.MaxValue)
   val Positive = RangeVar(1, Int.MaxValue)
   val Zero = Val(0)
@@ -16,7 +18,10 @@ object CLP {
   abstract trait Var {
     def +(v: Var): Var
     def -(v: Var): Var
-    def *(d: Double): Var
+    def op(oper: Int => Int): Var
+    def *(d: Double): Var = op( x => (x.toDouble * d).toInt)
+    def /(d: Double): Var = op( x => (x.toDouble / d).toInt)
+    def divCeil(d: Double): Var = op( x => (Math.ceil(x.toDouble / d)).toInt)
     def and(v: Var): Var
     def or(v: Var): Var
     def intersects(v: Var): Boolean
@@ -24,6 +29,8 @@ object CLP {
     def fixed: Boolean
     def isPositive = intersects(Positive)
     def isNonNegative = intersects(NonNegative)
+    def min: Int
+    def max: Int
   }
   
   def possiblyInvalid(v: => Var): Var = {
@@ -53,8 +60,12 @@ object CLP {
 
     val fixed = true
     
-    override def *(d: Double): Var = Val((v.toDouble * d).toInt)
-
+    override def min = v
+    
+    override def max = v
+    
+    override def op(oper: Int => Int) = Val(oper(v))
+    
     override def intersects(variable: Var): Boolean = {
       variable match {
         case Val(v2) => v == v2
@@ -116,7 +127,7 @@ object CLP {
     require (min < max, "invalid range: min=" + min + ", max=" + max)
     
     val fixed = false
-    
+
     override def intersects(variable: Var): Boolean = {
       variable match {
         case Val(_) => variable intersects this 
@@ -125,14 +136,10 @@ object CLP {
       }
     }
 
-    //TODO rounding???
-    override def *(d: Double): Var = {
-      val newMin = (min.toDouble * d).toInt
-      val newMax = (max.toDouble * d).toInt
-      if (newMin == newMax)
-        Val(newMin)
-      else
-        RangeVar(newMin, newMax)
+    override def op(oper: Int => Int) = {
+      val newMin = oper(min)
+      val newMax = oper(max)
+      rangeVarOrVal(newMin, newMax)
     }
     
     override def +(variable: Var): Var = {
@@ -205,6 +212,10 @@ object CLP {
 
     val fixed = false
     
+    override def min = vals.head
+    
+    override def max = vals.last
+    
     override def intersects(variable: Var): Boolean = {
       variable match {
         case Val(_) => variable intersects this 
@@ -213,14 +224,11 @@ object CLP {
       }
     }
 
-    //TODO rounding???
-    override def *(d: Double): Var = {
-      val prepared = vals.map{
-        x => ((x.toDouble) * d).toInt
-      }.distinct.sorted
+    override def op(oper: Int => Int) = {
+      val prepared = vals.map(oper).distinct.sorted
       listVarOrVal(prepared)
     }
-
+    
     override def +(variable: Var): Var = {
       variable match {
         case Val(_) => variable + this

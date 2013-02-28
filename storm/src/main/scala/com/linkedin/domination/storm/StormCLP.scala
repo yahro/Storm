@@ -10,6 +10,24 @@ object StormCLP {
   val InitialPlayerPopulation = 40
   val NeutralPlanet = 0
   
+  
+  def resolvePastBatlle(fleets: Map[Int, Var], possiblyAbandoned: Boolean, winner: Int): Var = {
+    //if neutral player is not among fleets it still might happenned that planet
+    //abandoned in that turn
+    val maxPlayers =
+      if (fleets.contains(NeutralPlanet) || !possiblyAbandoned)
+        fleets.size
+      else
+        fleets.size + 1
+        
+    val minPlayers = fleets.size
+
+    val minPenalty = fleets.filter(_._1 != winner).map(_._2 divCeil (maxPlayers - 1)).reduce(_ + _)
+    val maxPenalty = fleets.filter(_._1 != winner).map(_._2).reduce(_ + _)
+    
+    rangeVarOrVal(minPenalty.min, maxPenalty.max)
+  }
+  
   def growthValForSize(sizes: List[Size], pop: Var, dep: Option[Var], arr: Option[Var]): Var = {
     val allSizes = sizes ::: (dep match {
       case None => arr match {

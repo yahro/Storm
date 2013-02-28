@@ -1,26 +1,16 @@
 package com.linkedin.domination.storm
 
 import CLP._
+import StormCLP._
 
 object worksheet {
 
-Val(24) - ListVar(List(13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29))
-                                                  //> java.lang.IllegalArgumentException: requirement failed
-                                                  //| 	at scala.Predef$.require(Predef.scala:202)
-                                                  //| 	at com.linkedin.domination.storm.CLP$ListVar.<init>(CLP.scala:199)
-                                                  //| 	at com.linkedin.domination.storm.CLP$Val.$minus(CLP.scala:73)
-                                                  //| 	at com.linkedin.domination.storm.worksheet$$anonfun$main$1.apply$mcV$sp(
-                                                  //| com.linkedin.domination.storm.worksheet.scala:7)
-                                                  //| 	at org.scalaide.worksheet.runtime.library.WorksheetSupport$$anonfun$$exe
-                                                  //| cute$1.apply$mcV$sp(WorksheetSupport.scala:76)
-                                                  //| 	at org.scalaide.worksheet.runtime.library.WorksheetSupport$.redirected(W
-                                                  //| orksheetSupport.scala:65)
-                                                  //| 	at org.scalaide.worksheet.runtime.library.WorksheetSupport$.$execute(Wor
-                                                  //| ksheetSupport.scala:75)
-                                                  //| 	at com.linkedin.domination.storm.worksheet$.main(com.linkedin.domination
-                                                  //| .storm.worksheet.scala:5)
-                                                  //| 	at com.linkedin.domination.storm.worksheet.main(com.linkedin.domination.
-                                                  //| storm.worksheet.scala)
+val fleets = Map(3 -> Val(41), 1 -> Val(16), 0 -> RangeVar(20, 49))
+                                                  //> fleets  : scala.collection.immutable.Map[Int,Product with Serializable with 
+                                                  //| com.linkedin.domination.storm.CLP.Var] = Map(3 -> Val(41), 1 -> Val(16), 0 -
+                                                  //| > RangeVar(min=20, max=49))
+val p = resolvePastBatlle(fleets, false, 3)       //> p  : com.linkedin.domination.storm.CLP.Var = RangeVar(min=18, max=65)
 
+Val(41) - p                                       //> res0: com.linkedin.domination.storm.CLP.Var = RangeVar(min=0, max=23)
 
 }

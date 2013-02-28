@@ -113,6 +113,9 @@ class Storm extends Player {
               }
             }
       }
+      
+      //possibility that planet was abandoned
+      val possiblyAbandoned = possiblyInvalid(lastTurnState.current - departure.map(_.current).getOrElse(Zero)).intersects(Zero)
 
       //arrivals
       val arrivalsOption = arrivalsMap.get(turn)
@@ -141,10 +144,7 @@ class Storm extends Player {
         		  currentUniversePlanet.getOwner(), departure.map(_.current),
         		  arrivalsOption.map(_.map(_.current).reduce(_ + _)))
         		  
-            //it might happen that planet was abandoned in that case we need
-            //to account for that
-            val consideringDeparture = possiblyInvalid(lastTurnState.current - departure.map(_.current).getOrElse(Zero))
-            if (consideringDeparture.intersects(Zero))
+            if (possiblyAbandoned)
               state.addOutgoing(new TakingOverPlanet(state, ListVar(List(0, 1))))
 
           for {
@@ -168,7 +168,7 @@ class Storm extends Player {
             (lastTurnState.owner,
               departure match {
                 case None => lastTurnState.current
-                case Some(dep) => lastTurnState.current - dep.current
+                case Some(dep) => possiblyInvalid(lastTurnState.current - dep.current)
               }) ::
               (for (arrival <- arrivalsOption.get)
                 yield (arrival.owner, arrival.current))
@@ -178,22 +178,30 @@ class Storm extends Player {
           val forces = for (singleForce <- grouped)
             yield (singleForce._1, singleForce._2.map(_._2).reduce(_ + _))
           
-          val oppositeForcesCombined = forces.filter(_._1 != currentUniversePlanet.getOwner()).map(_._2).reduce(_ or _)
+          val oppositeForcesPenalty = resolvePastBatlle(forces, possiblyAbandoned, currentUniversePlanet.getOwner())
           
+          val abandonedPenalty =
+            if (possiblyAbandoned)
+              RangeVar(0, 1)
+            else
+              Zero
+              
           val victorForces =
           	if (lastTurnState.owner == currentUniversePlanet.getOwner()) {
-              possiblyInvalid((forces(currentUniversePlanet.getOwner()) - oppositeForcesCombined))
+              possiblyInvalid(forces(currentUniversePlanet.getOwner()) - (oppositeForcesPenalty + abandonedPenalty))
             } else {
               if (currentUniversePlanet.getOwner() == NeutralPlanet) {
                 if (playersOnPlanet.contains(NeutralPlanet))
-                  (forces(NeutralPlanet) - oppositeForcesCombined) and NonNegative
+                  (forces(NeutralPlanet) - oppositeForcesPenalty) and NonNegative
                 else
                   Zero
               } else
                 //RangeVar(0, 1), because if planet was not occupied
-                (forces(currentUniversePlanet.getOwner()) - (oppositeForcesCombined + RangeVar(0, 1)) and 
-                  Positive)
+                (forces(currentUniversePlanet.getOwner()) - (oppositeForcesPenalty + Val(1))) and 
+                  Positive
             }
+          
+          
           
           val newPopulationIncludingGrowth = currentUniversePlanet.getOwner() match {
             case NeutralPlanet => victorForces
