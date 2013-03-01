@@ -28,31 +28,32 @@ object StormCLP {
     rangeVarOrVal(minPenalty.min, maxPenalty.max)
   }
   
-  def growthValForSize(sizes: List[Size], pop: Var, dep: Option[Var], arr: Option[Var]): Var = {
-    val allSizes = sizes ::: (dep match {
+  def calculateNext(pop: Var, dep: Option[Var], arr: Option[Var]): Var = {
+    dep match {
       case None => arr match {
-        case None => sizesForVar(pop)
-        case Some(w) => sizesForVar(pop + w)
+        case None => pop
+        case Some(w) => pop + w
       }
       case Some(v) => arr match {
-        case None => sizesForVar(pop - v)
-        case Some(w) => sizesForVar(pop + w - v)
+        case None => pop - v
+        case Some(w) => pop + w - v
       }
-    })
+    }
+  }
+  
+  def growthValForSize(sizes: List[Size], pop: Var, dep: Option[Var], arr: Option[Var], possiblyAbandoned: Boolean): Var = {
+    val allSizes = sizes ::: sizesForVar(calculateNext(pop, dep, arr))
     
-    val assumingWasNotAbandoned = allSizes.map {
+    val growths = allSizes.map {
       case Size.SMALL => Val(1).asInstanceOf[Var]
       case Size.MEDIUM => Val(2).asInstanceOf[Var]
       case Size.LARGE => Val(4).asInstanceOf[Var]
     }.reduce(_ or _)
     
-    //it might happen that planet was abandoned and took over
-    //by one player in the same turn, in that case growth could be 0
-    val consideringDeparture = possiblyInvalid(pop - dep.getOrElse(Zero))
-    if (consideringDeparture.intersects(Zero))
-      assumingWasNotAbandoned or Zero
+    if (possiblyAbandoned)
+      growths or Zero
     else
-      assumingWasNotAbandoned
+      growths
   }
 
   val FleetSizes: List[(FleetType, Double)] =
@@ -91,37 +92,35 @@ object StormCLP {
       population.propagateBothWays(MaxPropagationDepth)
     }
     
-    def populationForNextTurn(size: Size, newOwner: Int, departure: Option[Var], arrivals: Option[Var]) = owner match {
-        case NeutralPlanet => population.outgoing match {
-          case Nil => population.current
-          case x => population.current - x.map(_.current).reduce(_ + _)
-        }
-        case _ => population.outgoing match {
-          case Nil => population.current + growthValForSize(relativeSizes, population.current, departure, arrivals)
-          case x => {
-            //take care of situation, where planet gets abandoned
-            val calculated = x.map(_.current).reduce(_ + _)
-            if (newOwner == NeutralPlanet)
-              population.current - calculated
-            else
-              ((population.current - calculated) and NonNegative) +
-              	growthValForSize(relativeSizes, population.current, departure, arrivals)
+    def populationForNextTurn(size: Size, newOwner: Int, departure: Option[Var], arrivals: Option[Var],
+        growthVal: Var, possiblyAbandoned: Boolean) =
+          owner match {
+            case NeutralPlanet => population.current
+            case _ =>
+              if (possiblyAbandoned)
+                calculateNext(population.current, departure, arrivals) + growthVal - RangeVar(0,  1)
+              else
+                calculateNext(population.current, departure, arrivals) + growthVal
           }
-        }
-      }
     
     /**
      * TODO at this stage the size might not be right, because it does
      * not take into consideration departures which might happen in this turn
      */
-    def createNextTurnState(size: Size, newOwner: Int, departure: Option[Var], arrivals: Option[Var]): PlanetState = {
-      val initialPopulation = populationForNextTurn(size, newOwner, departure, arrivals)
+    def createNextTurnState(size: Size, newOwner: Int, departure: Option[Var], arrivals: Option[Var],
+        possiblyAbandoned: Boolean): PlanetState = {
+      
+      val growthVal = growthValForSize(relativeSizes, population.current, departure, arrivals, possiblyAbandoned)
+      val initialPopulation = populationForNextTurn(size, newOwner, departure, arrivals, growthVal, possiblyAbandoned)
+      
       nextTurn = Some(PlanetState(id, new Node(initialPopulation, SizeRanges(size)), turn + 1, newOwner, size :: Nil))
+      
       val growth = newOwner match {
         case NeutralPlanet => None
         case _ =>
-          Some(new Growth(nextTurn.get, growthValForSize(relativeSizes, population.current, departure, arrivals))) 
+          Some(new Growth(nextTurn.get, growthVal)) 
       }
+      
       new NextTurn(this, nextTurn.get, growth)
       nextTurn.get
     }
@@ -207,17 +206,9 @@ object StormCLP {
     override def backPropagate(v: Var, depth: Int) = set(v)
   }
 
-  abstract class OneWayOutgoing(source: PlanetState, value: Var) extends Edge(Some(source.population), None) {
-    
-    source.addIncoming(this)
-    
-    def calculateCurrent = value
-    
-    override def propagate(v: Var, depth: Int) = set(v)
-  }
-  
-  class TakingOverPlanet(source: PlanetState, value: Var) extends OneWayOutgoing(source, value) {
-    override def toString = "TakingOverPlanet(source=" + source + ", value=" + value + ")"
+  class TakingOverPlanet(target: PlanetState, value: Var, flights: Option[List[Flight]]) extends OneWayIncoming(target, value) {
+    override def toString = "TakingOverPlanet(target=" + target + ", value=" + current + 
+    		", flights=" + flights + ")"
   }
   
   class Growth(target: PlanetState, value: Var) extends OneWayIncoming(target, value) {

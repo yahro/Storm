@@ -104,6 +104,7 @@ class Storm extends Player {
           flight
       }
 
+      //TODO testing
       StormTesters.accuracyTester.foreach {
         tester =>
             departure.foreach {
@@ -115,10 +116,13 @@ class Storm extends Player {
       }
       
       //possibility that planet was abandoned
-      val possiblyAbandoned = possiblyInvalid(lastTurnState.current - departure.map(_.current).getOrElse(Zero)).intersects(Zero)
+      val possiblyAbandoned =
+        lastTurnState.owner != NeutralPlanet &&
+        possiblyInvalid(lastTurnState.current - departure.map(_.current).getOrElse(Zero)).intersects(Zero)
 
       //arrivals
       val arrivalsOption = arrivalsMap.get(turn)
+      val arrivalsSum = arrivalsOption.map(_.map(_.current).reduce(_ + _))
       
       val playersOnPlanet = arrivalsOption match {
         case None => lastTurnState.owner :: Nil
@@ -137,21 +141,28 @@ class Storm extends Player {
         			turn,
         			NeutralPlanet,
         			Size.SMALL :: Nil)
-            planet.addIncoming(new Initial(planet, Zero))
+            new Initial(planet, Zero)
             planet
           } else
             lastTurnState.createNextTurnState(currentUniversePlanet.getSize(), 
         		  currentUniversePlanet.getOwner(), departure.map(_.current),
-        		  arrivalsOption.map(_.map(_.current).reduce(_ + _)))
-        		  
-            if (possiblyAbandoned)
-              state.addOutgoing(new TakingOverPlanet(state, ListVar(List(0, 1))))
+        		  arrivalsSum,
+        		  possiblyAbandoned)
 
-          for {
-            arrivals <- arrivalsOption
-            arrival <- arrivals
-          } arrival.setTarget(state)
-          
+          if (possiblyAbandoned && (currentUniversePlanet.getOwner() != NeutralPlanet) &&
+              arrivalsOption.isDefined)
+            new TakingOverPlanet(state, arrivalsSum.get - ListVar(List(0, 1)), arrivalsOption)
+          else
+            for {
+              arrivals <- arrivalsOption
+              arrival <- arrivals
+            } arrival.setTarget(state)
+
+          StormTesters.accuracyTester.foreach {
+            tester =>
+                tester.addMeasurmentForPlanet(planetId, state.population.current, state, states)
+          }
+
           state
         }
         case _ => {
@@ -205,7 +216,7 @@ class Storm extends Player {
           
           val newPopulationIncludingGrowth = currentUniversePlanet.getOwner() match {
             case NeutralPlanet => victorForces
-            case _ => victorForces + growthValForSize(sizesForVar(victorForces), victorForces, None, None)
+            case _ => victorForces + growthValForSize(sizesForVar(victorForces), victorForces, None, None, false)
           }
           
           val state = PlanetState(planetId,
@@ -217,7 +228,7 @@ class Storm extends Player {
           val growth = state.owner match {
             case NeutralPlanet => None
             case _ => Some(new Growth(state, growthValForSize(sizesForVar(victorForces), 
-            												  victorForces, None, None)))
+            												  victorForces, None, None, false)))
           }
           
           state.population.incoming ::= new FromCombat(state, victorForces, arrivalsOption.get, lastTurnState)

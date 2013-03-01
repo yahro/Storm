@@ -376,23 +376,15 @@ object CLP {
 	  improved
     }
 
-    def withMask(v: Var): Var = try {
+    def withMask(v: Var): Var =
       v match {
-        case Val(_) => v
+        case Val(x) if (x >= mask.min && x <= mask.max) => v
         case RangeVar(min, max) => if ((min max mask.min) == (max min mask.max))
           Val(max min mask.max)
         else
           RangeVar(min max mask.min, max min mask.max)
         case ListVar(list) => listVarOrVal(list.filter(x => x >= mask.min && x <= mask.max))
       }
-    } catch {
-      case _: RuntimeException => {
-        //print out history
-        //print out list of moves
-        //after all return mask
-        mask
-      }
-    }
     
     def calculate(edges: List[Edge]): Var = {
       val sum = edges.map(_.current).reduce(_ + _)
