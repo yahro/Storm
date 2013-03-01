@@ -15,8 +15,10 @@ object StormTesters {
     def notifyInconsistentPlanet(planetId: Int, v: Var, planet: PlanetState, states: mutable.Map[Int, PlanetState])
     def notifyInconsistentFlight(from: Int, to: Int, pop: Int)
     
+    var expectedDiffSum: Double = 0
     var upperDiffSum: Double = 0
     var count: Long = 0
+    
     
     def addMeasurmentForPlanet(planetId: Int, v: Var, planet: PlanetState, states: mutable.Map[Int, PlanetState]) = {
     	val pop = currentPopulation(planetId)
@@ -27,6 +29,7 @@ object StormTesters {
     	  case RangeVar(min, max) => upperDiffSum += (max - pop)
     	  case ListVar(l) => upperDiffSum += (l.last - pop)
     	}
+    	expectedDiffSum += Math.abs(v.expected - pop)
     	count += 1
     }
     
@@ -38,10 +41,12 @@ object StormTesters {
     
     def reset = {
       upperDiffSum = 0
+      expectedDiffSum = 0
       count = 0
     }
     
     def avgUpperDiff = upperDiffSum / count
+    def avgExpectedDiff = expectedDiffSum / count
   }
   
   var accuracyTester: Option[AccuracyTester] = None

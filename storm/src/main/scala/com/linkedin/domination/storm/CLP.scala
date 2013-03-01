@@ -31,6 +31,7 @@ object CLP {
     def isNonNegative = intersects(NonNegative)
     def min: Int
     def max: Int
+    def expected: Int
   }
   
   def possiblyInvalid(v: => Var): Var = {
@@ -61,9 +62,11 @@ object CLP {
 
     val fixed = true
     
-    override def min = v
+    override val expected = v
     
-    override def max = v
+    override val min = v
+    
+    override val max = v
     
     override def op(oper: Int => Int) = Val(oper(v))
     
@@ -128,6 +131,8 @@ object CLP {
     require (min < max, "invalid range: min=" + min + ", max=" + max)
     
     val fixed = false
+    
+    override val expected = (min + max) / 2
 
     override def intersects(variable: Var): Boolean = {
       variable match {
@@ -213,9 +218,11 @@ object CLP {
 
     val fixed = false
     
-    override def min = vals.head
+    override val min = vals.head
     
-    override def max = vals.last
+    override val max = vals.last
+    
+    override val expected = vals(vals.size / 2)
     
     override def intersects(variable: Var): Boolean = {
       variable match {
