@@ -12,15 +12,25 @@ import scala.collection._
 import CLP._
 import StormCLP._
 import StormTesters._
+import com.linkedin.domination.sample.WoodsmanPlayer
+
+/**
+ * Lista problemow:
+ * - zle liczone walka gdy sa reinforcements
+ */
+
 
 class Storm extends Player {
 
   val getPlayerName = "Storm"
     
+  val delegate = new WoodsmanPlayer 
+    
   var playerNumber = 0
   
   def initialize(playerNbr: java.lang.Integer) = {
     playerNumber = playerNbr
+    delegate.initialize(playerNbr)
   }
   
   // ** AI constants **
@@ -65,7 +75,7 @@ class Storm extends Player {
     turn += 1
       
     //TODO return moves
-    List();
+    delegate.makeMove(universe, events)
   }
   
   def updateModel(universe: Universe, events: List[Event]) = {
@@ -84,17 +94,24 @@ class Storm extends Player {
       val currentUniversePlanet = universe.getPlanetMap().get(planetId)
       val arrivalsMap = model.arrivals.getOrElseUpdate(planetId, mutable.Map())
       
+      
       //departures
       //first create flight
       val departure = departures.get(planetId).map {
         event =>
           //if this is our flight we know exact value
+          val exactValue =
+            if (event.getFleetOwner() == playerNumber)
+              Some(Val(event.getSentShipCount()))
+            else
+              None
           val flight = new Flight(lastTurnState,
                                   event.getFleetSize(),
                                   Universe.getTimeToTravel(currentUniversePlanet,
-                                      universe.getPlanetMap().get(event.getToPlanet())),
+                                  universe.getPlanetMap().get(event.getToPlanet())),
                                   lastTurnState.owner,
-                                  event.getToPlanet())
+                                  event.getToPlanet(),
+                                  exactValue)
           if (flight.owner == playerNumber)
             flight.set(Val(event.getSentShipCount()));
           val landingTurn = turn -1 + flight.duration
@@ -115,6 +132,9 @@ class Storm extends Player {
             }
       }
       
+      
+      
+      
       //possibility that planet was abandoned
       val possiblyAbandoned =
         lastTurnState.owner != NeutralPlanet &&
@@ -134,44 +154,89 @@ class Storm extends Player {
         case 1 => {
           //friendly mode
           
-          val state = if (currentUniversePlanet.getOwner() != lastTurnState.owner) {
-            //abandoned planet
+          if (currentUniversePlanet.getOwner() == playerNumber) {
+            //our planet - we know exact numbers
             val planet = PlanetState(planetId,
-        			new Node(Zero, SizeRanges(Size.SMALL)),
-        			turn,
-        			NeutralPlanet,
-        			Size.SMALL :: Nil)
-            new Initial(planet, Zero)
+                        new Node(Val(currentUniversePlanet.getPopulation()),
+                                 SizeRanges(currentUniversePlanet.getSize())),
+                        turn,
+                        playerNumber,
+                        currentUniversePlanet.getSize() :: Nil)
+            new Initial(planet, Val(currentUniversePlanet.getPopulation()))      
+            new EndOfLine(lastTurnState)
             planet
-          } else
-            lastTurnState.createNextTurnState(currentUniversePlanet.getSize(), 
-        		  currentUniversePlanet.getOwner(), departure.map(_.current),
-        		  arrivalsSum,
-        		  possiblyAbandoned)
+          } else {
+            val state = if (currentUniversePlanet.getOwner() != lastTurnState.owner) {
+              //abandoned planet
+              val planet = PlanetState(planetId,
+                new Node(Zero,
+                         SizeRanges(Size.SMALL)),
+                         turn,
+                         NeutralPlanet,
+                         Size.SMALL :: Nil)
+              new Initial(planet, Zero)
+              new EndOfLine(lastTurnState)
+              planet
+            } else {
+              lastTurnState.createNextTurnState(currentUniversePlanet.getSize(),
+                currentUniversePlanet.getOwner(), departure.map(_.current),
+                arrivalsSum,
+                possiblyAbandoned)
+            }
 
-          if (possiblyAbandoned && (currentUniversePlanet.getOwner() != NeutralPlanet) &&
+            if (possiblyAbandoned && (currentUniversePlanet.getOwner() != NeutralPlanet) &&
               arrivalsOption.isDefined)
-            new TakingOverPlanet(state, arrivalsSum.get - ListVar(List(0, 1)), arrivalsOption)
-          else
-            for {
-              arrivals <- arrivalsOption
-              arrival <- arrivals
-            } arrival.setTarget(state)
+              new TakingOverPlanet(state, arrivalsSum.get - ListVar(List(0, 1)), arrivalsOption)
+            else
+              for {
+                arrivals <- arrivalsOption
+                arrival <- arrivals
+              } arrival.setTarget(state)
 
-          StormTesters.accuracyTester.foreach {
-            tester =>
+            StormTesters.accuracyTester.foreach {
+              tester =>
                 tester.addMeasurmentForPlanet(planetId, state.population.current, state, states)
-          }
+            }
 
-          state
+            state
+          }
+          
         }
         case _ => {
           //combat mode
 
-          //TODO if my fleet participated in combat I know exact values
-          //TODO if I knew fleet sizes I could back-propagate this knowledge
+          if (playersOnPlanet.contains(playerNumber)) {
+            //we know exact fleet sizes, so we can make use of this knowledge
 
-          //otherwise calculate approximate numbers..
+            val arrivalsMap = arrivalsOption.get.groupBy(_.owner)
+            
+            val landings = events.filter(x => x.getEventType() == EventType.LANDING &&
+                                              x.getToPlanet() == planetId)
+
+            landings.filter(_.getFleetOwner() != playerNumber).foreach {
+              landing =>
+                for {
+                  arrivals <- arrivalsMap.get(landing.getFleetOwner())
+                  arrival <- arrivals
+                } {
+                  if (arrivals.size == 1) {
+                    val candidate =
+                      if (arrivals.head.owner != lastTurnState.owner)
+                        Val(landing.getSentShipCount())
+                      else {
+                        Val(landing.getSentShipCount()) -
+                          (lastTurnState.current - departure.map(_.current).getOrElse(Zero))
+                      }
+                    if (candidate.isMorePreciseThan(arrival.current))
+                      arrival.backPropagate(candidate, MaxPropagationDepth)
+                  }
+                  //TODO in future, same logic as with propagating with edges - isolate single edge
+                  //and see if this enforces new constraint
+                }
+            }
+          }
+          
+          //TODO if we are also winners, then we know exact planet's population
 
           val forcesList =
             //first element is planet's owner last turn's state
@@ -231,10 +296,10 @@ class Storm extends Player {
             												  victorForces, None, None, false)))
           }
           
-          state.population.incoming ::= new FromCombat(state, victorForces, arrivalsOption.get, lastTurnState)
+          new FromCombat(state, victorForces, arrivalsOption.get, lastTurnState)
           
           //attach outgoing edge from lastTurn, so that flight rooted at that state does not get rebalanced
-          new BeforeCombat(lastTurnState)
+          new EndOfLine(lastTurnState)
 
           StormTesters.accuracyTester.foreach {
             tester =>
@@ -257,11 +322,6 @@ class Storm extends Player {
      
     }
     
-    for ((planetId, states) <- model.timeline) {
-      states(turn - 1).population.propagateBothWays(MaxPropagationDepth)
-      states(turn).population.propagateBothWays(MaxPropagationDepth)
-    }
-
     //TODO testing
     StormTesters.accuracyTester.foreach {
       tester =>

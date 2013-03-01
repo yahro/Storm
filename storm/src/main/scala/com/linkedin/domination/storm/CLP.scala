@@ -57,6 +57,7 @@ object CLP {
       ListVar(vals)
   
   case class Val(v: Int) extends Var {
+    require(v >= 0)
 
     val fixed = true
     

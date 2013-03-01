@@ -179,7 +179,7 @@ object StormCLP {
     		", growth=" + growth + ", state=" + state + ")"
   }
 
-  class BeforeCombat(source: PlanetState) extends Edge(Some(source.population), None) {
+  class EndOfLine(source: PlanetState) extends Edge(Some(source.population), None) {
     
     source.addOutgoing(this)
     
@@ -224,7 +224,12 @@ object StormCLP {
     override def toString = "FromCombat(target=" + tgt + ", value=" + value + ")"
   }
   
-  class Flight(val source: PlanetState, val relativeSize: Size, val duration: Int, val owner: Int, destination: Int) extends Edge(Some(source.population), None) {
+  class Flight(val source: PlanetState,
+               val relativeSize: Size,
+               val duration: Int,
+               val owner: Int,
+               val destination: Int,
+               val exactValue: Option[Val]) extends Edge(Some(source.population), None) {
     
     source.addOutgoing(this)
 
@@ -235,29 +240,31 @@ object StormCLP {
       target = t
       target.addIncoming(this)
     }
-    
+
     def calculateCurrent =
-      fleetTypes.filter{
-      //filter out HORDE in case planet was not abandoned
-        ft =>
-          (ft != FleetType.HORDE) ||
-          	(source.nextTurn match {
-          	  case None => true
-          	  case Some(state) => state.owner == NeutralPlanet
-          	})
-      }.map{
-        case FleetType.SCOUTING => source.population.current * 0.25
-        case FleetType.RAIDING => source.population.current * 0.5
-        case FleetType.ASSAULT => source.population.current * 0.75
-        case FleetType.HORDE => source.population.current
-      }.reduce(_ or _)
+      exactValue.getOrElse {
+        fleetTypes.filter {
+          //filter out HORDE in case planet was not abandoned
+          ft =>
+            (ft != FleetType.HORDE) ||
+              (source.nextTurn match {
+                case None => true
+                case Some(state) => state.owner == NeutralPlanet
+              })
+        }.map {
+          case FleetType.SCOUTING => source.population.current * 0.25
+          case FleetType.RAIDING => source.population.current * 0.5
+          case FleetType.ASSAULT => source.population.current * 0.75
+          case FleetType.HORDE => source.population.current
+        }.reduce(_ or _)
+      }
       
     def fleetTypes: List[FleetType] = {
       for ((fs, d) <- FleetSizes if ((source.population.current * d) intersects SizeRanges(relativeSize)))
         yield fs
     }
     
-    override def toString = "Flight(source=" + source + ", target=" + target +
+    override def toString = "Flight(source=" + source.id + ", target=" + destination +
     		", size=" + relativeSize + ", fleetTypes=" + fleetTypes +
     		", current=" + current + ", duration=" + duration + ", owner=" + owner + ")"
   }
