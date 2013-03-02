@@ -13,6 +13,7 @@ import CLP._
 import StormCLP._
 import StormTesters._
 import com.linkedin.domination.sample.WoodsmanPlayer
+import com.linkedin.domination.sample.Lion
 
 /**
  * Lista problemow:
@@ -24,7 +25,7 @@ class Storm extends Player {
 
   val getPlayerName = "Storm"
     
-  val delegate = new WoodsmanPlayer 
+  val delegate = new Lion 
     
   var playerNumber = 0
   
@@ -131,10 +132,7 @@ class Storm extends Player {
               }
             }
       }
-      
-      
-      
-      
+
       //possibility that planet was abandoned
       val possiblyAbandoned =
         lastTurnState.owner != NeutralPlanet &&
@@ -205,14 +203,19 @@ class Storm extends Player {
         case _ => {
           //combat mode
 
-          if (playersOnPlanet.contains(playerNumber)) {
+            val landings = events.filter(x => x.getEventType() == EventType.LANDING &&
+              x.getToPlanet() == planetId)
+
+            val abandoned = !landings.exists(_.getFleetOwner() == lastTurnState.owner)
+
+            if (playersOnPlanet.contains(playerNumber) &&
+                //not abandoned by us
+                (lastTurnState.owner != playerNumber || !abandoned)
+                ) {
             //we know exact fleet sizes, so we can make use of this knowledge
 
             val arrivalsMap = arrivalsOption.get.groupBy(_.owner)
             
-            val landings = events.filter(x => x.getEventType() == EventType.LANDING &&
-                                              x.getToPlanet() == planetId)
-
             landings.filter(_.getFleetOwner() != playerNumber).foreach {
               landing =>
                 for {
@@ -236,77 +239,95 @@ class Storm extends Player {
             }
           }
           
-          //TODO if we are also winners, then we know exact planet's population
+          if (currentUniversePlanet.getOwner() == playerNumber) {
+            //we know exact planet's population
+            val state = PlanetState(planetId,
+                        new Node(Val(currentUniversePlanet.getPopulation()),
+                                 SizeRanges(currentUniversePlanet.getSize())),
+                        turn,
+                        playerNumber,
+                        currentUniversePlanet.getSize() :: Nil)
+            new FromCombat(state, Val(currentUniversePlanet.getPopulation()), arrivalsOption.get, lastTurnState)
+            new EndOfLine(lastTurnState)
+            state
 
-          val forcesList =
-            //first element is planet's owner last turn's state
-            //subtracted by possible departure 
-            (lastTurnState.owner,
-              departure match {
-                case None => lastTurnState.current
-                case Some(dep) => possiblyInvalid(lastTurnState.current - dep.current)
-              }) ::
-              (for (arrival <- arrivalsOption.get)
-                yield (arrival.owner, arrival.current))
-        
-          val grouped = forcesList.groupBy(_._1)
-          
-          val forces = for (singleForce <- grouped)
-            yield (singleForce._1, singleForce._2.map(_._2).reduce(_ + _))
-          
-          val oppositeForcesPenalty = resolvePastBatlle(forces, possiblyAbandoned, currentUniversePlanet.getOwner())
-          
-          val abandonedPenalty =
-            if (possiblyAbandoned)
-              RangeVar(0, 1)
-            else
-              Zero
-              
-          val victorForces =
-          	if (lastTurnState.owner == currentUniversePlanet.getOwner()) {
-              possiblyInvalid(forces(currentUniversePlanet.getOwner()) - (oppositeForcesPenalty + abandonedPenalty))
-            } else {
-              if (currentUniversePlanet.getOwner() == NeutralPlanet) {
-                if (playersOnPlanet.contains(NeutralPlanet))
-                  (forces(NeutralPlanet) - oppositeForcesPenalty) and NonNegative
-                else
-                  Zero
-              } else
-                //RangeVar(0, 1), because if planet was not occupied
-                (forces(currentUniversePlanet.getOwner()) - (oppositeForcesPenalty + Val(1))) and 
-                  Positive
+            StormTesters.accuracyTester.foreach {
+              tester =>
+                tester.addMeasurmentForPlanet(planetId, state.population.current, state, states)
             }
-          
-          
-          
-          val newPopulationIncludingGrowth = currentUniversePlanet.getOwner() match {
-            case NeutralPlanet => victorForces
-            case _ => victorForces + growthValForSize(sizesForVar(victorForces), victorForces, None, None, false)
-          }
-          
-          val state = PlanetState(planetId,
+
+            state
+            
+          } else {
+            //estimate
+            val forcesList =
+              //first element is planet's owner last turn's state
+              //subtracted by possible departure 
+              (lastTurnState.owner,
+                departure match {
+                  case None => lastTurnState.current
+                  case Some(dep) => possiblyInvalid(lastTurnState.current - dep.current)
+                }) ::
+                (for (arrival <- arrivalsOption.get)
+                  yield (arrival.owner, arrival.current))
+
+            val grouped = forcesList.groupBy(_._1)
+
+            val forces = for (singleForce <- grouped)
+              yield (singleForce._1, singleForce._2.map(_._2).reduce(_ + _))
+
+            val oppositeForcesPenalty = resolvePastBatlle(forces, possiblyAbandoned, currentUniversePlanet.getOwner())
+
+            val abandonedPenalty =
+              if (possiblyAbandoned)
+                RangeVar(0, 1)
+              else
+                Zero
+
+            val victorForces =
+              if (lastTurnState.owner == currentUniversePlanet.getOwner()) {
+                possiblyInvalid(forces(currentUniversePlanet.getOwner()) - (oppositeForcesPenalty + abandonedPenalty))
+              } else {
+                if (currentUniversePlanet.getOwner() == NeutralPlanet) {
+                  if (playersOnPlanet.contains(NeutralPlanet))
+                    (forces(NeutralPlanet) - oppositeForcesPenalty) and NonNegative
+                  else
+                    Zero
+                } else
+                  //RangeVar(0, 1), because if planet was not occupied
+                  (forces(currentUniversePlanet.getOwner()) - (oppositeForcesPenalty + Val(1))) and
+                    Positive
+              }
+
+            val newPopulationIncludingGrowth = currentUniversePlanet.getOwner() match {
+              case NeutralPlanet => victorForces
+              case _ => victorForces + growthValForSize(sizesForVar(victorForces), victorForces, None, None, false)
+            }
+
+            val state = PlanetState(planetId,
               new Node(newPopulationIncludingGrowth, SizeRanges(currentUniversePlanet.getSize())),
               turn,
               currentUniversePlanet.getOwner(),
               currentUniversePlanet.getSize() :: Nil)
-              
-          val growth = state.owner match {
-            case NeutralPlanet => None
-            case _ => Some(new Growth(state, growthValForSize(sizesForVar(victorForces), 
-            												  victorForces, None, None, false)))
-          }
-          
-          new FromCombat(state, victorForces, arrivalsOption.get, lastTurnState)
-          
-          //attach outgoing edge from lastTurn, so that flight rooted at that state does not get rebalanced
-          new EndOfLine(lastTurnState)
 
-          StormTesters.accuracyTester.foreach {
-            tester =>
+            val growth = state.owner match {
+              case NeutralPlanet => None
+              case _ => Some(new Growth(state, growthValForSize(sizesForVar(victorForces),
+                victorForces, None, None, false)))
+            }
+
+            new FromCombat(state, victorForces, arrivalsOption.get, lastTurnState)
+
+            //attach outgoing edge from lastTurn, so that flight rooted at that state does not get rebalanced
+            new EndOfLine(lastTurnState)
+
+            StormTesters.accuracyTester.foreach {
+              tester =>
                 tester.addMeasurmentForPlanet(planetId, state.population.current, state, states)
+            }
+
+            state
           }
-          
-          state
         }
       }
       
