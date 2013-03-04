@@ -4,15 +4,16 @@ import scala.annotation.tailrec
 
 object CLP {
   
-  //TODO implement greater than, result is [0, 1] - probability
-  
   val MaxVarListLength = 64
   val MaxPropagationDepth = 16
   val NonNegative = RangeVar(0, Int.MaxValue)
   val Positive = RangeVar(1, Int.MaxValue)
   val Zero = Val(0)
+  val ExpectedValueConfidence = 0.9
   
   val MaxPopulation: Int = 60 * (40 + 10000 * 4)
+  
+  
  
 
   abstract trait Var {
@@ -132,7 +133,7 @@ object CLP {
     
     val fixed = false
     
-    override val expected = (min + max) / 2
+    override val expected = (min + (max - min) * ExpectedValueConfidence).toInt
 
     override def intersects(variable: Var): Boolean = {
       variable match {
@@ -222,7 +223,7 @@ object CLP {
     
     override val max = vals.last
     
-    override val expected = vals(vals.size / 2)
+    override val expected = vals((vals.size * ExpectedValueConfidence).toInt)
     
     override def intersects(variable: Var): Boolean = {
       variable match {

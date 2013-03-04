@@ -242,6 +242,11 @@ var UniverseSprite = function(rect) {
       ts = textRender.getSize();
       x = planet.x - ts[0] / 2;
       self.buffer.blit(textRender, [x, y]);
+      textRender = fleetFont.render(storm.data[currentGameReplay.currentTurn.number][planet.id], 'rgba(255, 0, 0, 0.5)');
+      ts = textRender.getSize();
+      x = planet.x - ts[0] / 2;
+      y = planet.y - ts[1] / 2 - 2 - ts[1] - 2;
+      self.buffer.blit(textRender, [x, y]);
     });
     currentGameReplay.currentTurn.fleets.forEach(function(fleet) {
       gamejs.draw.rect(self.buffer, fleetColors[fleet.player], fleet.rect, 0);
@@ -467,6 +472,7 @@ var GameReplay = function() {
     self.reset();
     try {
       numberOfAlertsShown = 0;
+      storm = gamejs.http.load("replay/addon.json");
       var json = gamejs.http.load(path);
       self.maxShips = 0;
       fleetUniqueIdCounter = 1;
@@ -920,7 +926,7 @@ gamejs.ready(function () {
       }
     }
   }
-  if (!path) path = 'replay/test-replay.json';
+  if (!path) path = 'replay/wynik.json';
   //director.push(new TitleScene("Galactic Domination"));
   currentGameReplay = new GameReplay();
   var gameScene = new GameScene();
