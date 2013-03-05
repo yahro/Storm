@@ -18,6 +18,7 @@ import scala.io._
 import java.io.PrintWriter
 import scala.collection.mutable.ArrayBuffer
 import scala.annotation.tailrec
+import com.linkedin.domination.api.Move.FleetType
 
 /**
  * Lista problemow:
@@ -45,6 +46,9 @@ class Storm extends Player {
   
   // ** Game state **
   var turn = 0
+  var numberOfPlanets = 0;
+  var planetDistances: Map[(Int, Int), Int] = null
+  var planetsByDistance: Map[Int, List[(Int, Int)]] = null
 
   case class Model(timeline: mutable.Map[Int, mutable.Map[Int, PlanetState]], arrivals: mutable.Map[Int, mutable.Map[Int, List[Flight]]])
   
@@ -73,6 +77,7 @@ class Storm extends Player {
     val targets = getTargets(arrivals, futureBase, balance)
     
     //TODO calculate moves
+    val partialMoves = getPartialMoves(targets, balance, futureBase)
     
     //update turn
     turn += 1
@@ -108,7 +113,92 @@ class Storm extends Player {
   
   case class FPlanet(owner: Int, size: Int)
   
-  case class FFlight(owner: Int, from: Int, to: Int, size: Int, turnDepart: Int, turnArrive: Int)
+  case class FFlight(from: Int, to: Int, size: Int, fleetType: FleetType, turnDepart: Int, turnArrive: Int)
+  
+  case class TargetedMove(target: Int, flights: List[FFlight])
+  
+  def getPartialMoves(targets: mutable.Map[Int, mutable.Map[Int, Int]],
+      balances: mutable.Map[Int, mutable.Map[Int, FPlanet]],
+      population:  mutable.Map[Int, mutable.Map[Int, FPlanet]]): List[TargetedMove] = {
+
+    def partialMovesForPlanet(t: Int, planet: Int, turnTargets: mutable.Map[Int,Int]): Option[TargetedMove] = {
+
+	  @tailrec
+	  def findTragetedMove(tgt: Int, planets: List[(Int, Int)], soFar: List[FFlight]): List[FFlight] = {
+	    if (tgt <= 0)
+	      soFar
+	    else if (planets.isEmpty)
+	      Nil
+	    else {
+	      val (p, dist) = planets.head
+	      val pt = t - (dist - 1)
+	      if (pt >= 0) {
+	        //TODO is there a need to consider earlier balances? 
+	        val b = balances(p)(pt)
+	        if (b.owner == playerNumber && b.size > 0) {
+	          
+	          val possibleFleets =
+	            for {
+	              (fs, d) <- FleetSizes if (fs != FleetType.HORDE)  //we don't want to abandon planet
+	              ppop = population(p)(pt - 1)
+	              if (ppop.owner == playerNumber)  //this should be true
+	              pop = ((ppop.size + growth(ppop.owner, ppop.size)) * d).toInt
+	              if (pop < b.size)
+	            }
+                  yield (fs, pop)
+                  
+              possibleFleets match {
+                case Nil => findTragetedMove(tgt, planets.tail, soFar)
+                case x => {
+                  val satisfying = x.filter(_._2 >= tgt)
+                  //best fit is smallest value which fulfills target
+                  //or largest possible
+                  val bestFit = satisfying match {
+                    case Nil => x.maxBy(_._2)
+                    case y => y.minBy(_._2)
+                  }
+                  findTragetedMove(tgt - bestFit._2,
+                      planets.tail,
+                      FFlight(p, planet, bestFit._2, bestFit._1, pt, t) :: soFar)
+                }
+              }
+	        } else
+	          findTragetedMove(tgt, planets.tail, soFar)
+	      } else
+	        findTragetedMove(tgt, planets.tail, soFar)
+	    }
+	  }
+      
+      if (t < 0)
+        None
+      else {
+        //
+        partialMovesForPlanet(t - 1, planet, turnTargets) match {
+          case x: Some[TargetedMove] => x
+          case None => {
+            turnTargets.get(t) match {
+              case None => None
+              case Some(tgt) =>
+                findTragetedMove(tgt, planetsByDistance(planet), Nil) match {
+                  case Nil => None
+                  case x => Some(TargetedMove(planet, x))
+                }
+            }
+          }
+        }
+      }
+    }
+    
+    //for now constraint is that we consider only one flight from every planet
+    val partialMoves =
+      for ((planetId, turnTargets) <- targets)
+        yield partialMovesForPlanet(MovesAhead, planetId, turnTargets)
+      
+    partialMoves.foldLeft(List[TargetedMove]()) {
+      case (l, Some(e)) => e :: l
+      case (l, None) => l
+    }
+  }
   
   /**
    * Returns possible targets (how many ships need to be sent there)
@@ -135,11 +225,7 @@ class Storm extends Player {
           targetTurns(t) = -balance.size
         } else {
           //attack
-          val prev =
-            if (t == 0)
-              FPlanet(currentState.owner, currentState.current.expected)
-            else
-              populationTurns(t - 1)
+          val prev = populationTurns(t - 1)
 
           val planetFleet = FFleet(prev.owner, prev.size + growth(prev.owner, prev.size))
           
@@ -241,8 +327,6 @@ class Storm extends Player {
     }
   }
 
-  //TODO get into account scehduled departures
-
   /**
    * Calculate balance for a planet. If balance is negative, the
    * returned value is number of ships needed to maintain the planet. If balance
@@ -263,11 +347,7 @@ class Storm extends Player {
       for (t <- MovesAhead to 0 by -1) {
         val turnArrivals = planetArrivals.get(turn + t + 1)
 
-        val prev =
-          if (t == 0)
-            FPlanet(currentState.owner, currentState.current.expected)
-          else
-            turns(t-1)
+        val prev = turns(t-1)
             
         val cur = turns(t)
 
@@ -318,12 +398,17 @@ class Storm extends Player {
       val turns = mutable.Map[Int, FPlanet]()
       population(planetId) = turns
       
+      val exp = currentState.current.expected
+      val withoutGrowth =
+        if (exp >= 54)
+          exp - 4
+        else if (exp >= 22)
+          exp -2
+        else
+          exp -1
+      turns(-1) = FPlanet(currentState.owner, withoutGrowth)
       for (t <- 0 to MovesAhead) {
-        turns(t) = resolveFPlanet(
-            if (t == 0)
-              FPlanet(currentState.owner, currentState.current.expected)
-            else
-              turns(t - 1),
+        turns(t) = resolveFPlanet(turns(t - 1),
             planetArrivals.get(turn + t + 1))
       }
     }
@@ -604,6 +689,39 @@ class Storm extends Player {
   }
   
   def initializeModel(universe: Universe) = {
+    numberOfPlanets = universe.getPlanets().size()
+    
+    val distances =
+      for {
+        x <- 0 to numberOfPlanets - 1
+        y <- 0 to numberOfPlanets - 1
+      } yield ((x, y),
+        if (x == y)
+          0
+        else
+          Universe.getTimeToTravel(universe.getPlanetMap().get(x), universe.getPlanetMap().get(y))
+          )
+          
+    planetDistances = distances.toMap
+    
+    val allDistances =
+      for {
+        x <- 0 to numberOfPlanets - 1
+        y <- 0 to numberOfPlanets - 1 if y != x
+      } yield (x, y, planetDistances(x, y))
+      
+    val groupedAllDistances =
+      allDistances.groupBy(_._1)
+      
+    val sortedAllDistances =
+      groupedAllDistances.map {
+        case (k, v) => (k, v.sortBy(_._3))
+      }
+      
+    planetsByDistance = sortedAllDistances.map {
+      case (k, v) => (k, v.map(x => (x._2, x._3)).toList)
+    }
+      
     for ((id, planet) <- universe.getPlanetMap()){
       model.timeline(id.toInt) =
         mutable.Map(0 -> PlanetState.initialPlanetState(planet.getId(), planet.getOwner(), planet.getSize()))
