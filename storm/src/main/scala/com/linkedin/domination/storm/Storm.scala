@@ -49,7 +49,28 @@ class Storm extends Player {
   var numberOfPlanets = 0;
   var planetDistances: Map[(Int, Int), Int] = null
   var planetsByDistance: Map[Int, List[(Int, Int)]] = null
-
+  
+  //pre-calculated list of semi-optimal stream
+  //max population is 75 
+  //(distance, population, turn) -> (turn -> arrival)
+  val optimalStream: Map[(Int, Int, Int), Map[Int, Int]] = {
+    val condidates = List((2, 1), (28, 20), (70, 50))
+    val simulation =
+      for {
+        distance <- 1 to 64
+        population <- 1 to 75
+        t <- 0 to MovesAhead
+      } yield {
+        @tailrec
+        def accumulate(current: Int, min: Int, max: Int, deps: mutable.Map[Int, Int]) = {
+          
+        }
+        0
+      }
+      
+    null
+  }
+  
   case class Model(timeline: mutable.Map[Int, mutable.Map[Int, PlanetState]], arrivals: mutable.Map[Int, mutable.Map[Int, List[Flight]]])
   
   /**
@@ -59,6 +80,8 @@ class Storm extends Player {
   
   
   val model: Model = Model(mutable.Map(), mutable.Map()) //initially empty model
+  
+  var timing: Long = System.currentTimeMillis()
   
   def makeMove(universe: Universe, events: java.util.List[Event]): java.util.List[Move] = {  
       
@@ -76,14 +99,47 @@ class Storm extends Player {
     val balance = getBalance(arrivals, futureBase)
     val targets = getTargets(arrivals, futureBase, balance)
     
-    //TODO calculate moves
+    //calculate moves
     val partialMoves = getPartialMoves(targets, balance, futureBase)
+    
+    validatePartialMoves(partialMoves, futureBase)
+    
+    //go parallel 
+    val scoredMoves = partialMoves./*par.*/map {
+      move => (score(move, futureBase, arrivals), move)
+    }
+    
+    val sortedByScore = scoredMoves.toList.sortBy(_._1).reverse
+    
+    //TODO combine moves
+    val combined = sortedByScore
     
     //update turn
     turn += 1
+    
+    val newTime = System.currentTimeMillis()
+    println("moves: " + sortedByScore.size + ", time: " + (newTime - timing))
+    timing = newTime
       
     //TODO return moves
     delegate.makeMove(universe, events)
+  }
+  
+  def validatePartialMoves(partialMoves: List[TargetedMove],
+      population: mutable.Map[Int, mutable.Map[Int, FPlanet]]) = {
+    partialMoves.foreach {
+      move => move.flights.foreach {
+        flight => if (flight.turnDepart == 0) {
+          val s = population(flight.from)(-1).size
+          if (flight.size > s + growth(playerNumber, s) - 1) {
+            val p = population(flight.from)
+            val tp = p(-1)
+            val x = model.timeline(flight.from)(turn)
+            println("bug")
+          }
+        }
+      }
+    }
   }
 
   def writeOutEstimates(output: PrintWriter) = {
@@ -116,6 +172,129 @@ class Storm extends Player {
   case class FFlight(from: Int, to: Int, size: Int, fleetType: FleetType, turnDepart: Int, turnArrive: Int)
   
   case class TargetedMove(target: Int, flights: List[FFlight])
+  
+  def score(move: TargetedMove,
+      population:  mutable.Map[Int, mutable.Map[Int, FPlanet]],
+      arrivals: mutable.Map[Int, mutable.Map[Int,List[FFleet]]]): Double = {
+    val scores = for {
+      (p, turns) <- population
+      state = turns(-1)
+      if (state.owner != NeutralPlanet)
+    } yield evaluate(p, move, population, arrivals)
+    scores.sum
+  }
+  
+  
+  def evaluate(planet: Int, move: TargetedMove,
+      population:  mutable.Map[Int, mutable.Map[Int, FPlanet]],
+      arrivals: mutable.Map[Int, mutable.Map[Int,List[FFleet]]]): Double = {
+    val movesArrivals = mutable.Map[Int, mutable.Map[Int,List[FFleet]]]()
+    val movesDepartures = mutable.Map[Int, mutable.Map[Int,FFleet]]()
+    
+    //TODO optimization: if there is enemy arriving, then until it arrives, don't
+    //send anything, after that use optimal, pre-calculated value
+    
+    //populate arrivals and departures
+    for (flight <- move.flights) {
+      val depTurns = movesDepartures.getOrElseUpdate(flight.from, mutable.Map[Int,FFleet]())
+      val arrTurns = movesArrivals.getOrElseUpdate(flight.to, mutable.Map[Int,List[FFleet]]())
+      depTurns.put(flight.turnDepart, FFleet(playerNumber, flight.size))
+      val existing = arrTurns.getOrElse(flight.turnArrive, Nil)
+      arrTurns.put(flight.turnArrive, FFleet(playerNumber, flight.size) :: existing)
+    }
+    
+    val arrivlsFromGame = arrivals.map(x => (x._1, x._2.map(y => (y._1 + turn + 1, y._2))))
+
+    //merge with arrivals
+    val mergedArrivals = mutable.Map[Int, mutable.Map[Int, List[FFleet]]]() ++ {
+      (movesArrivals.toSeq ++ arrivlsFromGame.toSeq).groupBy(_._1).map {
+        x =>
+          val grouped = x._2.map(_._2.toSeq).reduce(_ ++ _).groupBy(_._1)
+          val map = grouped.map {
+            y =>
+              val mgd = y._2.map(_._2).reduce(_ ++ _)
+              (y._1, mgd)
+          }
+          (x._1, mutable.Map[Int, List[FFleet]]() ++ map)
+      }
+    }
+    
+    var prev =
+      for ((p, turns) <- population)
+        yield (p, turns(-1))
+
+    //keep two vectors last turn, current turn
+    for (t <- 0 to MovesAhead) {
+      //send all possible forces
+      for ((p, state) <- prev if (state.owner != NeutralPlanet)) {
+        val pSizeWithGrowth = state.size + growth(state.owner, state.size)
+        val dep = movesDepartures.getOrElse(p, mutable.Map[Int, FFleet]()).get(t) match {
+          case None => 0
+          case Some(FFleet(o, s)) => s
+        }
+        val targetTurn = planetDistances((p, planet)) - 1 + t
+        if (dep == 0 && targetTurn <= MovesAhead && 
+            pSizeWithGrowth > optimalStreamThreshold(p, planet, pSizeWithGrowth, t)) {
+          //if this state does not have departure yet
+          val planetFleet = FFleet(state.owner, pSizeWithGrowth)
+
+          val fleets = mergedArrivals.getOrElse(p, mutable.Map[Int, List[FFleet]]()).get(t) match {
+            case None => List(planetFleet)
+            case Some(ars) => planetFleet :: ars
+          }
+          
+          val grouped = fleets.groupBy(_.owner)
+
+          val forces = (for (force <- grouped)
+            yield (FFleet(force._1, force._2.map(_.size).sum))).toList
+
+          val maxOpponent: Int =
+            forces.filter(_.owner != state.owner) match {
+              case Nil => 0
+              case l =>
+                l.reduce((x, y) => if (x.size < y.size) x else y).size + 1 //+1 because we need to win
+            }
+
+          val toSend = forces.find(_.owner == state.owner).get.size - maxOpponent - 1
+          val possibleFleets =
+            for {
+              (fs, d) <- FleetSizes if (fs != FleetType.HORDE) //we don't want to abandon planet
+              pop = (planetFleet.size * d).toInt
+              if (pop <= toSend)
+            } yield (fs, pop)
+          if (possibleFleets.size > 0) {
+            val fleetToSend = possibleFleets.maxBy(_._2)._2
+            //add departures for this turn
+            val ffleet = FFleet(state.owner, fleetToSend)
+            val deps = movesDepartures.getOrElseUpdate(p, mutable.Map[Int, FFleet]())
+            deps(t) = ffleet
+            //add arrivals in the future
+            val ars = mergedArrivals.getOrElseUpdate(planet, mutable.Map[Int,List[FFleet]]())
+            val existing = ars.get(targetTurn)
+            ars(targetTurn) = existing match {
+              case None => List(ffleet)
+              case Some(l) => ffleet :: l
+            }
+          }
+        }
+      }
+
+      val next =
+        for ((p, state) <- prev)
+          yield (p, resolveFPlanet(state,
+          mergedArrivals.getOrElse(p, mutable.Map[Int, List[FFleet]]()).get(t),
+          movesDepartures.getOrElse(p, mutable.Map[Int, FFleet]()).get(t)))
+      prev = next
+    }
+    
+    val last = prev(planet)
+    if (last.owner == playerNumber)
+      last.size
+    else if (last.owner != NeutralPlanet)
+      -last.size
+    else
+      0
+  }
   
   def getPartialMoves(targets: mutable.Map[Int, mutable.Map[Int, Int]],
       balances: mutable.Map[Int, mutable.Map[Int, FPlanet]],
@@ -297,7 +476,9 @@ class Storm extends Player {
     }
   }
   
-  def resolveFPlanet(previous: FPlanet, arrivals: Option[List[FFleet]]): FPlanet = {
+  def resolveFPlanet(previous: FPlanet,
+      arrivals: Option[List[FFleet]],
+      departure: Option[FFleet]): FPlanet = {
     val planetFleet = FFleet(previous.owner, previous.size + growth(previous.owner, previous.size))
     val fleets = arrivals match {
       case None => List(planetFleet)
@@ -337,7 +518,6 @@ class Storm extends Player {
     val balance = mutable.Map[Int, mutable.Map[Int, FPlanet]]()
     for ((planetId, states) <- model.timeline) {
 
-      val currentState = states(turn)
       val planetArrivals = arrivals.getOrElse(planetId, mutable.Map[Int, List[FFleet]]())
       val balances = mutable.Map[Int, FPlanet]()
       balance(planetId) = balances
@@ -409,7 +589,7 @@ class Storm extends Player {
       turns(-1) = FPlanet(currentState.owner, withoutGrowth)
       for (t <- 0 to MovesAhead) {
         turns(t) = resolveFPlanet(turns(t - 1),
-            planetArrivals.get(turn + t + 1))
+            planetArrivals.get(turn + t + 1), None)
       }
     }
     population
