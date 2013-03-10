@@ -12,10 +12,8 @@ object CLP {
   val ExpectedValueConfidence = 0.9
   
   val MaxPopulation: Int = 60 * (40 + 10000 * 4)
-  
-  
- 
 
+  
   abstract trait Var {
     def +(v: Var): Var
     def -(v: Var): Var
