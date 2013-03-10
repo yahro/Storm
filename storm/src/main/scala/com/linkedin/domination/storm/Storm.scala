@@ -143,7 +143,8 @@ class Storm extends Player {
     model.turn += 1
     
 //    val newTime = System.currentTimeMillis()
-//    println("turn: " + model.turn + ", moves: " + sortedByScore.size + ", time: " + (newTime - timing))
+//    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
+//        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
 //    timing = newTime
       
     //return moves
@@ -164,8 +165,8 @@ class Storm extends Player {
     //front line consists of planets, which have at least 2 enemies in their neighborhood 
     val (front, back) = currentStates.filter(_._2.owner == playerNumber).partition {
       x => val (planet, state @ FPlanet(owner, size)) = x
-      val neightbors = planetsByDistance(planet).take(6).map(p => currentStates(p._1).owner)
-      neightbors.count(_ != playerNumber) >= 1
+      val neightbors = planetsByDistance(planet).takeWhile(_._2 <= MaxAttackTimeSpan).map(p => currentStates(p._1).owner)
+      neightbors.count(x => x != playerNumber && x != NeutralPlanet) >= 1
     }
 
     val supportMoves =
