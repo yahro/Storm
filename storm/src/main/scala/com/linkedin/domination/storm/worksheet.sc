@@ -9,7 +9,16 @@ import scala.collection._
 
 object worksheet {
 
-val x = Set(1, 2, 45)                             //> x  : scala.collection.Set[Int] = Set(1, 2, 45)
-x(34)                                             //> res0: Boolean = false
+val storm = new Storm                             //> storm  : com.linkedin.domination.storm.Storm = com.linkedin.domination.storm
+                                                  //| .Storm@7afaa550
+val t = 0                                         //> t  : Int = 0
+                                             
+val seq = storm.optimalStreamUnbound(6, 190, t)   //> seq  : IndexedSeq[com.linkedin.domination.storm.worksheet.storm.Population] 
+                                                  //| = Vector(95, 49, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0
+                                                  //| , 16, 0, 0, 0, 16, 0, 0, 0, 0, 0)
+seq.size                                          //> res0: Int = 31
+storm.MovesAhead + 1 - t                          //> res1: Int = 31
+                       
+seq.sum                                           //> res2: com.linkedin.domination.storm.worksheet.storm.Population = 240
            
 }
