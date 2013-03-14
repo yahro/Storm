@@ -45,13 +45,13 @@ class Storm extends Player {
   }
   
   // ** constants **
-  val MovesAhead = 48
-  val MaxAttackTimeSpan = 12
+  val MovesAhead = 30
+  val MaxAttackTimeSpan = 24
   
   val DefaultValueIfVeryLowConfidence = 70
   val LowConfidenceRange = 100
   
-  val StrengthRadius = 15
+  val StrengthRadius = 25
   
   var numberOfPlanets = 0;
   var planetDistances: Map[(PlanetId, PlanetId), Distance] = null
@@ -222,6 +222,8 @@ class Storm extends Player {
     rememberScheduledMoves(filtered)
     
     //move forces from back to fronts
+    //TODO smart redistribution - some kind combination of score based on distance and strength
+    //for both front line and back line
     val redistribution = redistributePlanets(futureBase)
     
     //update turn
