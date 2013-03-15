@@ -18,6 +18,7 @@ import scala.collection.mutable.ArrayBuffer
 import scala.annotation.tailrec
 import com.linkedin.domination.api.Move.FleetType
 import scala.collection.mutable.ListBuffer
+import scala.util.Random
 
 /**
  * Lista problemow:
@@ -46,7 +47,7 @@ class Storm extends Player {
   
   // ** constants **
   val MovesAhead = 30
-  val MaxAttackTimeSpan = 24
+  val MaxAttackTimeSpan = 16
   
   val DefaultValueIfVeryLowConfidence = 70
   val LowConfidenceRange = 100
@@ -193,11 +194,12 @@ class Storm extends Player {
 
     //uses original arrivals
     val (streams, strengths, states, statesUnderAttack, baselineAccGrowth) = calculateStrengthsBaseline(arrivals, departures)
-    writeOutStrengths(output, strengths)
+    //writeOutStrengths(output, strengths)
    
     //note: modifies arrivals
     val (futureBase, futureArs, futureDeps) =
       generateFuture(arrivalsCopy(arrivals), departures)
+    writeOutFrontBack(output, futureBase)
     
     val (balance, targets) = getBalanceAndTargets(futureArs, futureDeps, futureBase)
     
@@ -221,10 +223,8 @@ class Storm extends Player {
     
     rememberScheduledMoves(filtered)
     
-    //move forces from back to fronts
-    //TODO smart redistribution - some kind combination of score based on distance and strength
-    //for both front line and back line
-    val redistribution = redistributePlanets(futureBase)
+    //move forces from back to fronts and 
+    val redistribution = redistributePlanets(futureBase, strengths)
     
     //update turn
     model.turn += 1
@@ -237,23 +237,6 @@ class Storm extends Player {
     //return moves
     toGameMoves(filtered ::: redistribution)
   }
-
-  /**
-   * TODO
-   *
-   * Pomysl: policz ile statkow moze byc wyslanych na czas w kazdej turze - to jest defense i attack.
-   * Liczac wzrost uwzglednij to w liczeniu tzn dodaj przyloty z okolicy i wtedy jesli planeta jest
-   * dalej w moim posiadaniu dodaj wzrost.
-   *
-   * Gdy uwzglednia sie ruch, policz odpowiednie zmiany w:
-   * - stanie planet (tak jak sie to dzieje teraz ???)
-   * - ilosci statkow, ktore moga potencjalnie byc wyslane
-   * - policz roznice, jaka to powoduje w finalnym wyniku
-   *
-   * - wystarczy przeliczyc tylko zmiane w planecie, ktora jest atakowana i te, z ktorych wysylamy statki
-   *
-   *
-   */
 
   def addArrivals(a: Option[List[FFleet]], b: Option[List[FFleet]]) = {
     a match {
@@ -421,44 +404,123 @@ class Storm extends Player {
     if (v.max - v.min > LowConfidenceRange)
       DefaultValueIfVeryLowConfidence
     else
-      v.expected  
+      v.expected
+
+  def divideIntoFrontAndBack(currentStates: mutable.Map[PlanetId, FPlanet]): (mutable.Map[PlanetId, FPlanet], mutable.Map[PlanetId, FPlanet]) = {
+
+    val myPlanets = currentStates.filter(_._2.owner == playerNumber)
+    if (myPlanets.size == numberOfPlanets) {
+      (mutable.Map[PlanetId, FPlanet](), currentStates)
+    } else {
+      val (front, back) = myPlanets.partition {
+        x =>
+          val (planet, state @ FPlanet(owner, size)) = x
+
+          val closestEnemy = planetsByDistance(planet).filter(p => currentStates(p._1).owner != playerNumber).head
+          
+          //condition: there is at most 1 planet, which is closer to the closest enemy
+          myPlanets.count {
+            y =>
+              planetDistances(y._1, closestEnemy._1) < closestEnemy._2
+          } < 2
+      }
+
+      (front, back)
+    }
+  }
   
-  def redistributePlanets(population:  mutable.Map[PlanetId, mutable.Map[Turn, FPlanet]]): List[TargetedMove] = {
+  /**
+   * zaimplementowac lancuch(?) tak, zeby bylo wiadomo dokad streamowac nadwyzke ( w zaleznosci od potrzeb)
+   * i streamowac do planety, ktora jest "w odpowiednim kierunku"
+   */
+  def redistributePlanets(population:  mutable.Map[PlanetId, mutable.Map[Turn, FPlanet]],
+      strengths: Array[Array[Map[Player,Population]]]): List[TargetedMove] = {
     val currentStates =
       for ((planet, turns) <- population)
         yield (planet, turns(0))
         
-    //front line consists of planets, which have at least 2 enemies in their neighborhood 
-    val (front, back) = currentStates.filter(_._2.owner == playerNumber).partition {
-      x => val (planet, state @ FPlanet(owner, size)) = x
-      val neightbors = planetsByDistance(planet).takeWhile(_._2 <= MaxAttackTimeSpan).map(p => currentStates(p._1).owner)
-      neightbors.count(x => x != playerNumber && x != NeutralPlanet) >= 1
+    val (front, back) = divideIntoFrontAndBack(currentStates)
+    
+    if (!front.isEmpty) {
+
+    //calculate how much in need front planets are
+    val frontSterngths = front.map {
+      fp => 
+        val (planet, state) = fp
+        val futureState = population(planet)(MaxAttackTimeSpan)
+        val str = strengths(planet)(MaxAttackTimeSpan)
+        val strength =
+          (if (futureState.owner == playerNumber) futureState.size else 0) +
+          str(playerNumber) - (str.filter(x => x._1 != playerNumber).map(_._2).sum)
+        (planet, strength)
     }
+    
+    val frontPlanetInNeed = frontSterngths.minBy(_._2)._1
 
     val supportMoves =
     if (front.size > 0)
       for ((planet, state) <- back if (state.size >= 70)) yield {
-        
-        val frontLineNeighbor = planetsByDistance(planet).find(x => front.contains(x._1)).get
-        val flight = FFlight(planet, frontLineNeighbor._1, (state.size * 0.25).toInt,
-          FleetType.SCOUTING, 0, frontLineNeighbor._2 - 1)
-        TargetedMove(playerNumber, frontLineNeighbor._1, List(flight), false)
+        if (Random.nextDouble < 0.2) {
+          //send reinforcements to planet in need
+          val frontPlanetInRange = frontSterngths.filter(x => planetDistances(planet, x._1) <= MaxAttackTimeSpan)
+          
+          val target =
+            if (frontPlanetInRange.isEmpty)
+              frontPlanetInNeed
+            else
+              frontPlanetInRange.minBy(_._2)._1
+          
+          val flight = FFlight(planet, target, (state.size * 0.25).toInt,
+            FleetType.SCOUTING, 0, planetDistances(planet, target) - 1)
+          TargetedMove(playerNumber, target, List(flight), false)
+        } else {
+          //support closest
+          val closestFrontPlanet = planetsByDistance(planet).filter(x => front.contains(x._1)).head._1
+          val flight = FFlight(planet, closestFrontPlanet, (state.size * 0.25).toInt,
+            FleetType.SCOUTING, 0, planetDistances(planet, closestFrontPlanet) - 1)
+          TargetedMove(playerNumber, closestFrontPlanet, List(flight), false)
+        }
       }
     else Nil
     
+    def guerrillaTarget(planet: PlanetId): Option[(PlanetId, Distance)] = {
+        val enemies = planetsByDistance(planet).filter(p => 
+          currentStates(p._1).owner != playerNumber && currentStates(p._1).owner != NeutralPlanet)
+        
+        val enemiesInRane = enemies.filter(_._2 <= MaxAttackTimeSpan)
+        
+        val target = enemiesInRane match {
+          case Nil => None
+          case _ => Some(enemiesInRane.minBy {
+            x =>
+              val (enemyPlanet, distance) = x
+              val enemyPlanetOwner = currentStates(enemyPlanet).owner
+              val futureState = population(enemyPlanet)(MaxAttackTimeSpan)
+              val str = strengths(enemyPlanet)(MaxAttackTimeSpan)
+              val enemyStrength =
+                (if (futureState.owner == enemyPlanetOwner) futureState.size else 0) +
+                 str(enemyPlanetOwner) - str(playerNumber)
+              })
+        }
+        target
+    }
+    
     val guerrillaMoves =
     if (front.size > 0)
-      for ((planet, state) <- front if state.size >= 70) yield {
-        val closestEnemy = planetsByDistance(planet).filter(p => 
-          currentStates(p._1).owner != playerNumber && currentStates(p._1).owner != NeutralPlanet).head
-          
-        val flight = FFlight(planet, closestEnemy._1, (state.size * 0.25).toInt,
-          FleetType.SCOUTING, 0, closestEnemy._2 - 1)
-        TargetedMove(playerNumber, closestEnemy._1, List(flight), false)
+      for {
+        (planet, state) <- front if state.size >= 70
+        target <- guerrillaTarget(planet)
+      } yield {
+        val flight = FFlight(planet, target._1, (state.size * 0.25).toInt,
+          FleetType.SCOUTING, 0, target._2 - 1)
+        TargetedMove(playerNumber, target._1, List(flight), false)
       }
     else Nil
         
-    supportMoves.toList ::: guerrillaMoves.filter(_.timeSpan < MaxAttackTimeSpan).toList
+    supportMoves.toList ::: guerrillaMoves.toList
+      
+    } else
+      Nil
   }
   
   def rememberScheduledMoves(combined: List[TargetedMove]) = {
@@ -503,7 +565,7 @@ class Storm extends Player {
   
   def writeOutStrengths(output: PrintWriter, strengths: Array[Array[Map[Player,Population]]]) = {
     output.write("  {\n")
-
+    
     for (planetId <- 0 until numberOfPlanets) {
       val summed = (for (i <- 0 to MaxAttackTimeSpan) yield strengths(planetId)(i)).reduce(addStrengths(_, _))
       
@@ -515,6 +577,30 @@ class Storm extends Player {
     output.flush()
   }
 
+  def writeOutFrontBack(output: PrintWriter, population: mutable.Map[PlanetId, mutable.Map[Turn,FPlanet]]) = {
+    output.write("  {\n")
+    
+        val currentStates =
+      for ((planet, turns) <- population)
+        yield (planet, turns(0))
+    
+    val (front, back) = divideIntoFrontAndBack(currentStates)
+    
+    for (planetId <- 0 until numberOfPlanets) {
+      
+      val value =
+        if (currentStates(planetId).owner == playerNumber)
+          if (front.contains(planetId)) "F" else "B"
+        else " "
+      
+      output.write("    \"" + planetId + "\": \"" + value +
+        "\",\n")
+    }
+    
+    output.write("  },\n")
+    output.flush()
+  }
+  
   def writeOutBalance(output: PrintWriter, sts: mutable.Map[PlanetId, mutable.Map[Turn,FPlanet]]) = {
     output.write("  {\n")
 
@@ -898,6 +984,9 @@ class Storm extends Player {
       }
       case (l, None) => l
     }
+    
+    //TODO support moves
+    
     
     filtered ++ scheduledMoves
   }
