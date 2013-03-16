@@ -20,10 +20,6 @@ import com.linkedin.domination.api.Move.FleetType
 import scala.collection.mutable.ListBuffer
 import scala.util.Random
 
-/**
- * Lista problemow:
- * - zle liczone walka gdy sa reinforcements
- */
 
 class Storm extends Player {
   
@@ -38,8 +34,8 @@ class Storm extends Player {
     
   var playerNumber = 0
   
-  val output= new PrintWriter("/Users/jodzga/git/storm/storm/visualizer/replay/addon.json")
-  output.write("{ \"data\": [\n")
+//  val output= new PrintWriter("/Users/jodzga/git/storm/storm/visualizer/replay/addon.json")
+//  output.write("{ \"data\": [\n")
   
   def initialize(playerNbr: java.lang.Integer) = {
     playerNumber = playerNbr
@@ -199,7 +195,7 @@ class Storm extends Player {
     //note: modifies arrivals
     val (futureBase, futureArs, futureDeps) =
       generateFuture(arrivalsCopy(arrivals), departures)
-    writeOutFrontBack(output, futureBase)
+//    writeOutFrontBack(output, futureBase)
     
     val (balance, targets) = getBalanceAndTargets(futureArs, futureDeps, futureBase)
     
@@ -229,10 +225,10 @@ class Storm extends Player {
     //update turn
     model.turn += 1
     
-    val newTime = System.currentTimeMillis()
-    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
-        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
-    timing = newTime
+//    val newTime = System.currentTimeMillis()
+//    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
+//        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
+//    timing = newTime
       
     //return moves
     toGameMoves(filtered ::: redistribution)
