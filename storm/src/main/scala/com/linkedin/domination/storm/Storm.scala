@@ -48,7 +48,7 @@ class Storm extends Player {
   val DefaultValueIfVeryLowConfidence = 70
   val LowConfidenceRange = 100
   
-  val StrengthRadius = 25
+  val StrengthRadius = 35
   
   var numberOfPlanets = 0;
   var planetDistances: Map[(PlanetId, PlanetId), Distance] = null
@@ -225,10 +225,10 @@ class Storm extends Player {
     //update turn
     model.turn += 1
     
-//    val newTime = System.currentTimeMillis()
-//    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
-//        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
-//    timing = newTime
+    val newTime = System.currentTimeMillis()
+    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
+        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
+    timing = newTime
       
     //return moves
     toGameMoves(filtered ::: redistribution)
