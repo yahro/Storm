@@ -242,7 +242,7 @@ var UniverseSprite = function(rect) {
       ts = textRender.getSize();
       x = planet.x - ts[0] / 2;
       self.buffer.blit(textRender, [x, y]);
-      textRender = fleetFont.render(storm.data[currentGameReplay.currentTurn.number][planet.id], 'rgba(255, 0, 0, 0.5)');
+      textRender = fleetFont.render(storm.data[currentGameReplay.currentTurn.number][planet.id], 'rgba(0, 0, 0, 1)');
       ts = textRender.getSize();
       x = planet.x - ts[0] / 2;
       y = planet.y - ts[1] / 2 - 2 - ts[1] - 2;
