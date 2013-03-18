@@ -220,7 +220,7 @@ class Storm extends Player {
     rememberScheduledMoves(filtered)
     
     //move forces from back to fronts and 
-    val redistribution = redistributePlanets(futureBase, strengths)
+    val redistribution = redistributePlanets(futureBase, strengths, filtered)
     
     //update turn
     model.turn += 1
@@ -425,12 +425,15 @@ class Storm extends Player {
     }
   }
   
-  /**
-   * zaimplementowac lancuch(?) tak, zeby bylo wiadomo dokad streamowac nadwyzke ( w zaleznosci od potrzeb)
-   * i streamowac do planety, ktora jest "w odpowiednim kierunku"
-   */
   def redistributePlanets(population:  mutable.Map[PlanetId, mutable.Map[Turn, FPlanet]],
-      strengths: Array[Array[Map[Player,Population]]]): List[TargetedMove] = {
+      strengths: Array[Array[Map[Player,Population]]],
+      moves: List[TargetedMove]): List[TargetedMove] = {
+    
+    val usedPlanets = (for {
+      move <- moves
+      f <- move.flights if (f.turnDepart == 0)
+    } yield f.from).toSet
+    
     val currentStates =
       for ((planet, turns) <- population)
         yield (planet, turns(0))
@@ -455,7 +458,7 @@ class Storm extends Player {
 
     val supportMoves =
     if (front.size > 0)
-      for ((planet, state) <- back if (state.size >= 70)) yield {
+      for ((planet, state) <- back if (state.size >= 70 && !usedPlanets(planet))) yield {
         if (Random.nextDouble < 0.2) {
           //send reinforcements to planet in need
           val frontPlanetInRange = frontSterngths.filter(x => planetDistances(planet, x._1) <= MaxAttackTimeSpan)
@@ -504,7 +507,7 @@ class Storm extends Player {
     val guerrillaMoves =
     if (front.size > 0)
       for {
-        (planet, state) <- front if state.size >= 70
+        (planet, state) <- front if (state.size >= 70 && !usedPlanets(planet))
         target <- guerrillaTarget(planet)
       } yield {
         val flight = FFlight(planet, target._1, (state.size * 0.25).toInt,
@@ -864,6 +867,8 @@ class Storm extends Player {
   /**
    * TODO for defensive actions consider looking for moves in earlier turns with
    * smaller size
+   * TODO try to find all possible moves, or just the smallest ones - if smaller didn't work
+   * then try with bigger fleet
    */
   def getPartialMoves(targets: mutable.Map[Int, mutable.Map[Int, FTargetPlanet]],
       balances: mutable.Map[Int, mutable.Map[Int, FPlanet]],
@@ -942,7 +947,7 @@ class Storm extends Player {
             if (move.owner == NeutralPlanet) {
               turnTargets.get(t) match {
                 case Some(tgt) if tgt.owner != NeutralPlanet =>
-                  findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => planetUsedInScheduledMoves(x._1)), Nil) match {
+                  findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => x._2 > MaxAttackTimeSpan || planetUsedInScheduledMoves(x._1)), Nil) match {
                     case Nil => x
                     case y => Some(TargetedMove(tgt.owner, planet, y, false))
                   }
@@ -955,7 +960,7 @@ class Storm extends Player {
             turnTargets.get(t) match {
               case None => None
               case Some(tgt) =>
-                findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => planetUsedInScheduledMoves(x._1)), Nil) match {
+                findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => x._2 > MaxAttackTimeSpan || planetUsedInScheduledMoves(x._1)), Nil) match {
                   case Nil => None
                   case x => Some(TargetedMove(tgt.owner, planet, x, false))
                 }
