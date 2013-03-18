@@ -432,7 +432,7 @@ class Storm extends Player {
     val usedPlanets = (for {
       move <- moves
       f <- move.flights if (f.turnDepart == 0)
-    } yield f.from).toSet
+    } yield (f.from -> f.size)).toMap
     
     val currentStates =
       for ((planet, turns) <- population)
@@ -447,9 +447,10 @@ class Storm extends Player {
       fp => 
         val (planet, state) = fp
         val futureState = population(planet)(MaxAttackTimeSpan)
+        val sentShips = usedPlanets.get(planet).getOrElse(0)
         val str = strengths(planet)(MaxAttackTimeSpan)
         val strength =
-          (if (futureState.owner == playerNumber) futureState.size else 0) +
+          (if (futureState.owner == playerNumber) futureState.size else 0) - sentShips +
           str(playerNumber) - (str.filter(x => x._1 != playerNumber).map(_._2).sum)
         (planet, strength)
     }
@@ -458,7 +459,7 @@ class Storm extends Player {
 
     val supportMoves =
     if (front.size > 0)
-      for ((planet, state) <- back if (state.size >= 70 && !usedPlanets(planet))) yield {
+      for ((planet, state) <- back if (state.size >= 70 && !usedPlanets.contains(planet))) yield {
         if (Random.nextDouble < 0.2) {
           //send reinforcements to planet in need
           val frontPlanetInRange = frontSterngths.filter(x => planetDistances(planet, x._1) <= MaxAttackTimeSpan)
@@ -507,7 +508,7 @@ class Storm extends Player {
     val guerrillaMoves =
     if (front.size > 0)
       for {
-        (planet, state) <- front if (state.size >= 70 && !usedPlanets(planet))
+        (planet, state) <- front if (state.size >= 70 && !usedPlanets.contains(planet))
         target <- guerrillaTarget(planet)
       } yield {
         val flight = FFlight(planet, target._1, (state.size * 0.25).toInt,
@@ -916,6 +917,9 @@ class Storm extends Player {
               possibleFleets match {
                 case Nil => findTragetedMove(tgt, planets.tail, soFar)
                 case x => {
+                  //TODO loop over possible fleets and return list of possible moves 
+                  
+                  
                   val satisfying = x.filter(_._2 >= tgt.size)
                   //best fit is smallest value which fulfills target
                   //or largest possible
@@ -938,12 +942,13 @@ class Storm extends Player {
       if (t < 0)
         None
       else {
-        //support stealing - if previous one was taken from neutral, then it is
-        //better to take if from non-neutral in later turn
-        //otherwise, the sooner the better 
-        //TODO need cooperation with target selectors
         partialMovesForPlanet(t - 1, planet, turnTargets) match {
           case x @ Some(move) => {
+            /**
+             * if found move to capture planet from an enemy and if this enemy
+             * is a neutral planet, then it is better to take it later from a
+             * non-neutral enemy if it will be captured later by someone else
+             */
             if (move.owner == NeutralPlanet) {
               turnTargets.get(t) match {
                 case Some(tgt) if tgt.owner != NeutralPlanet =>
