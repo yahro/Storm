@@ -61,7 +61,7 @@ class Storm extends Player {
   //pre-calculated list of semi-optimal stream
   //max population is 75 
   val optimalStream: Map[(Distance, Population, Turn), IndexedSeq[Population]] = {
-    val condidates = List((2, 1), (28, 20), (70, 50))
+    val condidates = List((2, 1), (28, 20), (67, 50))
     val simulation =
       for {
         distance: Distance <- 1 to 65
@@ -190,7 +190,7 @@ class Storm extends Player {
 
     //uses original arrivals
     val (streams, strengths, states, statesUnderAttack, baselineAccGrowth) = calculateStrengthsBaseline(arrivals, departures)
-    //writeOutStrengths(output, strengths)
+//    writeOutStrengths(output, strengths)
    
     //note: modifies arrivals
     val (futureBase, futureArs, futureDeps) =
@@ -225,10 +225,10 @@ class Storm extends Player {
     //update turn
     model.turn += 1
     
-    val newTime = System.currentTimeMillis()
-    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
-        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
-    timing = newTime
+//    val newTime = System.currentTimeMillis()
+//    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
+//        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
+//    timing = newTime
       
     //return moves
     toGameMoves(filtered ::: redistribution)
@@ -459,7 +459,7 @@ class Storm extends Player {
 
     val supportMoves =
     if (front.size > 0)
-      for ((planet, state) <- back if (state.size >= 70 && !usedPlanets.contains(planet))) yield {
+      for ((planet, state) <- back if (state.size >= 67 && !usedPlanets.contains(planet))) yield {
         if (Random.nextDouble < 0.2) {
           //send reinforcements to planet in need
           val frontPlanetInRange = frontSterngths.filter(x => planetDistances(planet, x._1) <= MaxAttackTimeSpan)
@@ -508,7 +508,7 @@ class Storm extends Player {
     val guerrillaMoves =
     if (front.size > 0)
       for {
-        (planet, state) <- front if (state.size >= 70 && !usedPlanets.contains(planet))
+        (planet, state) <- front if (state.size >= 67 && !usedPlanets.contains(planet))
         target <- guerrillaTarget(planet)
       } yield {
         val flight = FFlight(planet, target._1, (state.size * 0.25).toInt,
