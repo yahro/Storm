@@ -648,7 +648,7 @@ class Storm extends Player {
       case _ => flights.map(x => x.turnArrive - x.turnDepart).max
     }
     
-    val shipsSpent = flights.map(_.size).sum
+    val shipsSpent = flights.map(_.size).sum * (if (owner == NeutralPlanet) 2 else 1)
   }
   
   /**
@@ -865,11 +865,11 @@ class Storm extends Player {
     currentScore
   }
   
+  case class PartialMoves(owner: Owner, moves: List[TargetedMove])
+  
   /**
    * TODO for defensive actions consider looking for moves in earlier turns with
    * smaller size
-   * TODO try to find all possible moves, or just the smallest ones - if smaller didn't work
-   * then try with bigger fleet
    */
   def getPartialMoves(targets: mutable.Map[Int, mutable.Map[Int, FTargetPlanet]],
       balances: mutable.Map[Int, mutable.Map[Int, FPlanet]],
@@ -887,7 +887,7 @@ class Storm extends Player {
       
     val planetUsedInScheduledMoves = scheduledMoves.flatMap(_.flights.map(_.from)).toSet
       
-    def partialMovesForPlanet(t: Int, planet: Int, turnTargets: mutable.Map[Int,FTargetPlanet]): Option[TargetedMove] = {
+    def partialMovesForPlanet(t: Int, planet: Int, turnTargets: mutable.Map[Int,FTargetPlanet]): Option[PartialMoves] = {
 
 	  @tailrec
 	  def findTragetedMove(tgt: FTargetPlanet, planets: List[(Int, Int)], soFar: List[FFlight]): List[FFlight] = {
@@ -917,9 +917,6 @@ class Storm extends Player {
               possibleFleets match {
                 case Nil => findTragetedMove(tgt, planets.tail, soFar)
                 case x => {
-                  //TODO loop over possible fleets and return list of possible moves 
-                  
-                  
                   val satisfying = x.filter(_._2 >= tgt.size)
                   //best fit is smallest value which fulfills target
                   //or largest possible
@@ -943,23 +940,42 @@ class Storm extends Player {
         None
       else {
         partialMovesForPlanet(t - 1, planet, turnTargets) match {
-          case x @ Some(move) => {
+          case x @ Some(moves) => {
             /**
              * if found move to capture planet from an enemy and if this enemy
              * is a neutral planet, then it is better to take it later from a
              * non-neutral enemy if it will be captured later by someone else
              */
-            if (move.owner == NeutralPlanet) {
+            if (moves.owner == NeutralPlanet) {
               turnTargets.get(t) match {
                 case Some(tgt) if tgt.owner != NeutralPlanet =>
                   findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => x._2 > MaxAttackTimeSpan || planetUsedInScheduledMoves(x._1)), Nil) match {
-                    case Nil => x
-                    case y => Some(TargetedMove(tgt.owner, planet, y, false))
+                    case Nil => None
+                    case y => Some(PartialMoves(tgt.owner, List(TargetedMove(tgt.owner, planet, y, false))))
                   }
-                case _ => x 
+                case _ => x
               }
-            } else
-              x
+            } else {
+              turnTargets.get(t) match {
+                case None => x
+                case Some(tgt) => {
+                  if (moves.owner != tgt.owner) {
+                    findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => x._2 > MaxAttackTimeSpan || planetUsedInScheduledMoves(x._1)), Nil) match {
+                      case Nil => None
+                      case y => Some(PartialMoves(tgt.owner, List(TargetedMove(tgt.owner, planet, y, false))))
+                    }
+                  } else {
+                    if (Random.nextDouble < 0.3) {
+                      findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => x._2 > MaxAttackTimeSpan || planetUsedInScheduledMoves(x._1)), Nil) match {
+                        case Nil => x
+                        case y => Some(PartialMoves(tgt.owner, TargetedMove(tgt.owner, planet, y, false) :: moves.moves))
+                      }
+                    } else
+                      x
+                  }
+                }
+              }
+            }
           }
           case None => {
             turnTargets.get(t) match {
@@ -967,7 +983,7 @@ class Storm extends Player {
               case Some(tgt) =>
                 findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => x._2 > MaxAttackTimeSpan || planetUsedInScheduledMoves(x._1)), Nil) match {
                   case Nil => None
-                  case x => Some(TargetedMove(tgt.owner, planet, x, false))
+                  case x => Some(PartialMoves(tgt.owner, List(TargetedMove(tgt.owner, planet, x, false))))
                 }
             }
           }
@@ -975,26 +991,17 @@ class Storm extends Player {
       }
     }
     
-    //for now constraint is that we consider only one flight from every planet
     val partialMoves =
-      for ((planetId, turnTargets) <- targets)
-        yield partialMovesForPlanet(MovesAhead, planetId, turnTargets)
-    
-    val filtered = partialMoves.foldLeft(List[TargetedMove]()) {
-      case (l, Some(e)) =>  {
-        //filter out too long moves
-        if (!(e.timeSpan > MaxAttackTimeSpan))
-          e :: l
-        else
-          l
+      (for {
+        (planetId, turnTargets) <- targets
+        partialMoves <- partialMovesForPlanet(MovesAhead, planetId, turnTargets)
+        PartialMoves(pmOwner, pmMoves) = partialMoves
       }
-      case (l, None) => l
-    }
+        yield pmMoves).flatten
     
     //TODO support moves
     
-    
-    filtered ++ scheduledMoves
+    (partialMoves ++ scheduledMoves).toList
   }
 
   def growth(size: Int): Int =
@@ -1239,8 +1246,6 @@ class Storm extends Player {
   /**
    * This method adds adequate values to departures and arrival depending
    * on the scheduled flights
-   * 
-   * TODO make copy of arrical and return modified copy
    * 
    * returns (futureBase, departures, arrivals)
    */
