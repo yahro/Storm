@@ -48,8 +48,6 @@ class Storm extends Player {
   val DefaultValueIfVeryLowConfidence = 67
   val LowConfidenceRange = 100
   
-  val StrengthRadius = 35
-  
   var numberOfPlanets = 0;
   var planetDistances: Map[(PlanetId, PlanetId), Distance] = null
   
@@ -1617,10 +1615,6 @@ class Storm extends Player {
       case (k, v) => (k, v.map(x => (x._2, x._3)).toList)
     }
     
-    planetsInStregthRadius = planetsByDistance.map {
-      case (k, v) => (k, v.takeWhile(_._2 <= StrengthRadius))
-    } 
-      
     for ((id, planet) <- universe.getPlanetMap()){
       model.timeline(id.toInt) =
         mutable.Map(0 -> PlanetState.initialPlanetState(planet.getId(), planet.getOwner(), planet.getSize()))
