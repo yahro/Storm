@@ -953,11 +953,15 @@ class Storm extends Player {
                   }
                 case _ => x
               }
+            } else if (moves.owner == playerNumber) {
+              //if this is defensive move, the earliest move should win
+              x
             } else {
               turnTargets.get(t) match {
                 case None => x
                 case Some(tgt) => {
                   if (moves.owner != tgt.owner) {
+                    //owner has changed, so there is no point sending ships earlier
                     findTragetedMove(tgt, planetsByDistance(planet).filterNot(x => x._2 > MaxAttackTimeSpan || planetUsedInScheduledMoves(x._1)), Nil) match {
                       case Nil => None
                       case y => Some(PartialMoves(tgt.owner, List(TargetedMove(tgt.owner, planet, y, false))))
@@ -1016,9 +1020,6 @@ class Storm extends Player {
     else
       growth(pop)
       
-  /**
-   * result is in model's turn - TODO change it
-   */
   def getArrivalsAndDepartures = {
     val arrivals = mutable.Map[PlanetId, mutable.Map[Turn,List[FFleet]]]()
     val departures = mutable.Map[PlanetId, mutable.Map[Turn,FFlight]]()
