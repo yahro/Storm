@@ -456,9 +456,10 @@ class Storm extends Player {
     val frontPlanetInNeed = frontSterngths.minBy(_._2)._1
 
     val supportMoves =
-    if (front.size > 0)
       for ((planet, state) <- back if (state.size >= 67 && !usedPlanets.contains(planet))) yield {
-        if (Random.nextDouble < 0.2) {
+        val closestFrontPlanet = planetsByDistance(planet).filter(x => front.contains(x._1)).head._1
+        
+        if (planetDistances(planet, closestFrontPlanet) >= 7) {
           //send reinforcements to planet in need
           val frontPlanetInRange = frontSterngths.filter(x => planetDistances(planet, x._1) <= MaxAttackTimeSpan)
           
@@ -473,38 +474,31 @@ class Storm extends Player {
           TargetedMove(playerNumber, target, List(flight), false)
         } else {
           //support closest
-          val closestFrontPlanet = planetsByDistance(planet).filter(x => front.contains(x._1)).head._1
+          
           val flight = FFlight(planet, closestFrontPlanet, (state.size * 0.25).toInt,
             FleetType.SCOUTING, 0, planetDistances(planet, closestFrontPlanet) - 1)
           TargetedMove(playerNumber, closestFrontPlanet, List(flight), false)
         }
       }
-    else Nil
+    
+    /**
+     * use unused front planets as support
+     */
     
     def guerrillaTarget(planet: PlanetId): Option[(PlanetId, Distance)] = {
         val enemies = planetsByDistance(planet).filter(p => 
           currentStates(p._1).owner != playerNumber && currentStates(p._1).owner != NeutralPlanet)
         
-        val enemiesInRane = enemies.filter(_._2 <= MaxAttackTimeSpan)
+        val enemiesInRange = enemies.filter(_._2 <= MaxAttackTimeSpan)
         
-        val target = enemiesInRane match {
+        val target = enemiesInRange match {
           case Nil => None
-          case _ => Some(enemiesInRane.minBy {
-            x =>
-              val (enemyPlanet, distance) = x
-              val enemyPlanetOwner = currentStates(enemyPlanet).owner
-              val futureState = population(enemyPlanet)(MaxAttackTimeSpan)
-              val str = strengths(enemyPlanet)(MaxAttackTimeSpan)
-              val enemyStrength =
-                (if (futureState.owner == enemyPlanetOwner) futureState.size else 0) +
-                 str(enemyPlanetOwner) - str(playerNumber)
-              })
+          case _ => Some(enemiesInRange.head)
         }
         target
     }
     
     val guerrillaMoves =
-    if (front.size > 0)
       for {
         (planet, state) <- front if (state.size >= 67 && !usedPlanets.contains(planet))
         target <- guerrillaTarget(planet)
@@ -513,7 +507,6 @@ class Storm extends Player {
           FleetType.SCOUTING, 0, target._2 - 1)
         TargetedMove(playerNumber, target._1, List(flight), false)
       }
-    else Nil
         
     supportMoves.toList ::: guerrillaMoves.toList
       
