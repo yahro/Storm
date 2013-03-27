@@ -196,6 +196,7 @@ class Storm extends Player {
 //    writeOutFrontBack(output, futureBase)
     
     val (balance, targets) = getBalanceAndTargets(futureArs, futureDeps, futureBase)
+//    writeOutBalance(output, balance)
     
     //calculate moves
     val partialMoves = getPartialMoves(targets, balance, futureBase)
@@ -228,6 +229,8 @@ class Storm extends Player {
 //        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
 //    timing = newTime
       
+//    writeOutTargets(filtered, redistribution)
+    
     //return moves
     toGameMoves(filtered ::: redistribution)
   }
@@ -592,6 +595,44 @@ class Storm extends Player {
     output.flush()
   }
   
+  def writeOutTargets(output: PrintWriter, filtered: List[TargetedMove], redistribution: List[TargetedMove]) = {
+    output.write("  {\n")
+    
+    for (planetId <- 0 until numberOfPlanets) {
+
+      def listContainsAsSource(lst: List[TargetedMove]): Boolean = {
+        val sources =
+          for {
+            move <- lst
+            flight <- move.flights if (flight.turnDepart == 0)
+          } yield flight.from
+        sources.exists(_ == planetId)
+      }
+
+      def listContainsAsTarget(lst: List[TargetedMove]): Boolean = {
+        val targets =
+          for {
+            move <- lst
+            flight <- move.flights if (flight.turnDepart == 0)
+          } yield flight.to
+        targets.exists(_ == planetId)
+      }
+      
+      val status =
+        if (listContainsAsSource(filtered)) "AS"
+        else if (listContainsAsTarget(filtered)) "AT"
+        else if (listContainsAsSource(redistribution)) "RS"
+        else if (listContainsAsTarget(redistribution)) "RT"
+        else " "
+          
+      output.write("    \"" + planetId + "\": \"" + status +
+        "\",\n")
+    }
+    
+    output.write("  },\n")
+    output.flush()
+  }
+  
   def writeOutBalance(output: PrintWriter, sts: mutable.Map[PlanetId, mutable.Map[Turn,FPlanet]]) = {
     output.write("  {\n")
 
@@ -901,7 +942,8 @@ class Storm extends Player {
 	              pop = ((ppop.size + growth(ppop.owner, ppop.size)) * d).toInt //to send
 	              if (pop < b.size)  //must be less than a balance
 	              if ((!tgt.soft) || (Size.getSizeForNumber(ppop.size + growth(ppop.owner, ppop.size) - pop) == 
-	                  Size.getSizeForNumber(population(p)(pt).size)))  //must not affect planet size
+	                  Size.LARGE))  //must not affect planet size
+	                //TODO this is not exactly right, because yhere might be incoming flights
 	            }
                   yield (fs, pop)
                   
@@ -993,8 +1035,6 @@ class Storm extends Player {
         PartialMoves(pmOwner, pmMoves) = partialMoves
       }
         yield pmMoves).flatten
-    
-    //TODO support moves
     
     (partialMoves ++ scheduledMoves).toList
   }
@@ -1138,12 +1178,15 @@ class Storm extends Player {
       
       val turns = population(planetId)
       var planetOwnedInFuture = false
-      var battleInTheFuture = false
-      var departureInTheFuture = false
+      var arrivalsInFuture = false
+      var need = 1
       
       for (t <- MovesAhead to 0 by -1) {
         val turnArrivals = planetArrivals.get(t)
         val turnDeparture = planetDepartures.get(t)
+        
+        if (turnArrivals.isDefined && (!turnArrivals.get.isEmpty))
+          arrivalsInFuture = true
 
         val prev = turns(t-1)
         val cur = turns(t)
@@ -1157,7 +1200,8 @@ class Storm extends Player {
             f.size
         }
 
-        val planetFleet = FFleet(prev.owner, prev.size + growth(prev.owner, prev.size) - departureSize)
+        val planetFleet = FFleet(cur.owner, prev.size + growth(prev.owner, prev.size) - departureSize)
+        
         val fleets = turnArrivals match {
           case None => List(planetFleet)
           case Some(ars) => planetFleet :: ars
@@ -1167,37 +1211,34 @@ class Storm extends Player {
         val forces = (for (force <- grouped)
           yield (FFleet(force._1, force._2.map(_.size).sum))).toList
           
-        if (forces.size > 1)
-          battleInTheFuture = true
-
         val maxOpponent: Population =
-          forces.filter(_.owner != prev.owner) match {
+          forces.filter(_.owner != playerNumber) match {
             case Nil => 0
             case l =>
               l.reduce((x, y) => if (x.size > y.size) x else y).size
           }
+        
+        val playerForces = forces.find(_.owner == playerNumber).map(_.size).getOrElse(0)
 
-        val defending = forces.find(_.owner == prev.owner).get.size
-        
-        /**
-         * reflect future needs in the balance
-         * easiest approach: if there is a battle in this
-         * planet in the future and I own it, then balance is 0
-         */
         val balance =
-          if (prev.owner == NeutralPlanet)
-            0
-          else if (prev.owner == playerNumber && (battleInTheFuture || departureInTheFuture))
-            0
-          else if (prev.owner == cur.owner)
-            cur.size - 1
-          else
-            defending - maxOpponent - 1
+          if (prev.owner != playerNumber) {
+            //forces needed to tak eover a planet
+            need = 1
+            (maxOpponent + 2 - playerForces) max 0
+          }
+          else {
+            if (cur.owner == playerNumber) {
+              val b = cur.size - need
+              need = (need - growth(need) + maxOpponent - (playerForces - (prev.size + growth(prev.owner, prev.size)))) max 1
+              b
+            } else {
+              //defense
+              need = prev.size
+              (maxOpponent + 2 - playerForces) max 0
+            }
+          }
         
-        if (departureSize > 0)
-          departureInTheFuture = true
-        
-        balances(t) = FPlanet(prev.owner, balance)
+        balances(t) = FPlanet(cur.owner, balance)
         
         if (prev.owner == playerNumber) {
           if (balance < 0) {
@@ -1210,12 +1251,9 @@ class Storm extends Player {
             else if (cur.size < 50)
               targetTurns(t) = FTargetPlanet(prev.owner, 50 - cur.size, true)
           }
-        } else if (prev.owner != playerNumber && !planetOwnedInFuture) {
+        } else if (!planetOwnedInFuture && (prev.owner != NeutralPlanet || !arrivalsInFuture)) {
           //attack
-          val forcesToTakePlanet = defending + 2 -  //+2: 1 to take planet, 1 to keep it
-            fleets.find(_.owner == playerNumber).map(_.size).getOrElse(0)
-            
-          targetTurns(t) = FTargetPlanet(prev.owner, forcesToTakePlanet, false)
+          targetTurns(t) = FTargetPlanet(prev.owner, balance, false)
         }
         
       }
