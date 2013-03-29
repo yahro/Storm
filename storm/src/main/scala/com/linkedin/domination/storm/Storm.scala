@@ -48,6 +48,8 @@ class Storm extends Player {
   val DefaultValueIfVeryLowConfidence = 67
   val LowConfidenceRange = 100
   
+  val ScoreRealFactor = 4
+  
   var numberOfPlanets = 0;
   var planetDistances: Map[(PlanetId, PlanetId), Distance] = null
   
@@ -224,10 +226,10 @@ class Storm extends Player {
     //update turn
     model.turn += 1
     
-//    val newTime = System.currentTimeMillis()
-//    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
-//        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
-//    timing = newTime
+    val newTime = System.currentTimeMillis()
+    println("turn: " + model.turn + ", moves: " + sortedByScore.size + 
+        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
+    timing = newTime
       
 //    writeOutTargets(filtered, redistribution)
     
@@ -349,8 +351,13 @@ class Storm extends Player {
           addArrivals(arrivalsFromScheduledMoves, addArrivals(arrivalsFromGame, arrivalsFromStrength)),
           dep)
           
-      if (currentState.owner == playerNumber && currentStateUnderAttack.owner == playerNumber)
-        baselineAccGrowth += growth(currentState.size)
+          
+      if (currentStateUnderAttack.owner == playerNumber) {
+        baselineAccGrowth += 1
+        if (currentState.owner == playerNumber)
+          baselineAccGrowth += growth(currentState.size) * ScoreRealFactor
+      }
+        
           
       for (to: PlanetId <- 0 until numberOfPlanets if (to != from)) {
 
@@ -832,12 +839,18 @@ class Storm extends Player {
         if (t < MovesAhead)
           turnsToRecalculate(planet)(t + 1) = true
 
-        if (oldState.owner == playerNumber && oldStateUnderAttack.owner == playerNumber)
-          currentScore -= growth(oldState.size)
+        if (oldStateUnderAttack.owner == playerNumber) {
+          currentScore -= 1
+          if (oldState.owner == playerNumber)
+            currentScore -= growth(oldState.size) * ScoreRealFactor
+        }
 
-        if (updatedState.owner == playerNumber && updatedStateUnderAttack.owner == playerNumber)
-          currentScore += growth(updatedState.size)
-
+        if (updatedStateUnderAttack.owner == playerNumber) {
+          currentScore += 1
+          if (updatedState.owner == playerNumber)
+            currentScore += growth(updatedState.size) * ScoreRealFactor
+        }
+          
         //update strengths and streams
         for (to: PlanetId <- 0 until numberOfPlanets if (to != planet)) {
 
