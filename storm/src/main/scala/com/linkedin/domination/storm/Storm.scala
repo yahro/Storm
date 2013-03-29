@@ -64,7 +64,7 @@ class Storm extends Player {
       for {
         distance: Distance <- 1 to 65
         population: Population <- 0 to MaxCachedPopForStream
-        t: Turn <- 0 to MovesAhead
+        t: Turn <- 0 to 48
       } yield {
         
         @tailrec
