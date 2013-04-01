@@ -1168,6 +1168,12 @@ class Storm extends Player {
     val balance = mutable.Map[PlanetId, mutable.Map[Turn, FPlanet]]()
     val target = mutable.Map[PlanetId, mutable.Map[Turn, FTargetPlanet]]()
     
+    val noOpponents = !population.exists {
+      x =>
+        val owner = x._2(-1).owner
+        owner != playerNumber && owner != NeutralPlanet
+    }
+    
     for ((planetId, _) <- model.timeline) {
 
       val planetArrivals = arrivals.getOrElse(planetId, mutable.Map[Turn, List[FFleet]]())
@@ -1254,7 +1260,7 @@ class Storm extends Player {
               targetTurns(t) = FTargetPlanet(prev.owner, 50 - cur.size, true)
           }
         } else if (!planetOwnedInFuture && (prev.owner != NeutralPlanet ||
-            (!arrivalsInFuture && (cur.size < 50 || model.turn > 250)))) {
+            (!arrivalsInFuture && (cur.size < 50 || noOpponents)))) {
           //attack
           targetTurns(t) = FTargetPlanet(prev.owner, balance, false)
         }
