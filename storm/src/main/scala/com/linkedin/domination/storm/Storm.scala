@@ -113,6 +113,11 @@ class Storm extends Player {
       
     simulation.map(x => (x._1, x._2.toIndexedSeq)).toMap
   }
+
+  def accOptimalStreamUnbound(distance: Distance, population: Population, t: Turn): IndexedSeq[Population] = {
+    for (k <- MovesAhead to t by -1)
+      yield optimalStreamUnbound(distance, population, k).sum
+  }
   
   def optimalStreamUnbound(distance: Distance, population: Population, t: Turn): IndexedSeq[Population] = {
 
@@ -245,15 +250,6 @@ class Storm extends Player {
     }
   }
   
-  def accumulateStream(s: IndexedSeq[Population]): IndexedSeq[Population] = {
-    var runningSum = 0
-    for (pop <- s)
-      yield {
-        runningSum += pop
-        runningSum
-      }
-  }
-  
   def calculateStrengthsBaseline(arrivals: mutable.Map[PlanetId, mutable.Map[Turn,List[FFleet]]],
       departures: mutable.Map[PlanetId, mutable.Map[Turn,FFlight]]) = {
     /**
@@ -358,7 +354,7 @@ class Storm extends Player {
         if (t == 0) {
           val size = previousState.size + growth(previousState.owner, previousState.size)
           streams(t)(from)(to) = (previousState.owner,
-            accumulateStream(optimalStreamUnbound(planetDistances(from, to), size, t)),
+            accOptimalStreamUnbound(planetDistances(from, to), size, t),
             0)
         }
 
@@ -366,7 +362,7 @@ class Storm extends Player {
         if (t < MovesAhead) {
           if (previousState.owner != currentState.owner)
             streams(t + 1)(from)(to) = (currentState.owner,
-              accumulateStream(optimalStreamUnbound(planetDistances(from, to), currentState.size, t + 1)),
+              accOptimalStreamUnbound(planetDistances(from, to), currentState.size, t + 1),
               0)
           else {
             val lastStream = streams(t)(from)(to)
@@ -413,13 +409,21 @@ class Storm extends Player {
         x =>
           val (planet, state @ FPlanet(owner, size)) = x
 
-          val closestEnemy = planetsByDistance(planet).filter(p => currentStates(p._1).owner != playerNumber).head
+          val enemies = planetsByDistance(planet).filter{
+            p =>
+              val pState = currentStates(p._1)
+              (pState.owner != playerNumber) && (pState.owner != NeutralPlanet || pState.size < 50)
+          }
           
-          //condition: there is at most 1 planet, which is closer to the closest enemy
-          myPlanets.count {
-            y =>
-              planetDistances(y._1, closestEnemy._1) < closestEnemy._2
-          } < 2
+          if (enemies.size > 0) {
+            val closestEnemy = enemies.head
+            //there is at most 1 planet, which is closer to the closest enemy
+            myPlanets.count {
+              y =>
+                planetDistances(y._1, closestEnemy._1) < closestEnemy._2
+            } < 2
+          } else
+            false
       }
 
       (front, back)
@@ -561,9 +565,7 @@ class Storm extends Player {
     output.write("  {\n")
     
     for (planetId <- 0 until numberOfPlanets) {
-      val summed = (for (i <- 0 to MaxAttackTimeSpan) yield strengths(planetId)(i)).reduce(addStrengths(_, _))
-      
-      output.write("    \"" + planetId + "\": \"" + summed +
+      output.write("    \"" + planetId + "\": \"" + strengths(planetId)(MovesAhead) +
         "\",\n")
     }
     
@@ -844,7 +846,7 @@ class Storm extends Player {
           if (t == 0 || streamsChanges(t)(planet)(to) == null) {
             val size = previousState.size + growth(previousState.owner, previousState.size)
             streamsChanges(t)(planet)(to) = (previousState.owner,
-              accumulateStream(optimalStreamUnbound(planetDistances(planet, to), size, t)),
+              accOptimalStreamUnbound(planetDistances(planet, to), size, t),
               0)
           }
 
@@ -852,7 +854,7 @@ class Storm extends Player {
           if (t < MovesAhead) {
             if (previousState.owner != updatedState.owner)
               streamsChanges(t + 1)(planet)(to) = (updatedState.owner,
-                accumulateStream(optimalStreamUnbound(planetDistances(planet, to), updatedState.size, t + 1)),
+                accOptimalStreamUnbound(planetDistances(planet, to), updatedState.size, t + 1),
                 0)
             else {
               val lastStream = streamsChanges(t)(planet)(to)
@@ -1251,7 +1253,8 @@ class Storm extends Player {
             else if (cur.size < 50)
               targetTurns(t) = FTargetPlanet(prev.owner, 50 - cur.size, true)
           }
-        } else if (!planetOwnedInFuture && (prev.owner != NeutralPlanet || !arrivalsInFuture)) {
+        } else if (!planetOwnedInFuture && (prev.owner != NeutralPlanet ||
+            (!arrivalsInFuture && (cur.size < 50 || model.turn > 250)))) {
           //attack
           targetTurns(t) = FTargetPlanet(prev.owner, balance, false)
         }

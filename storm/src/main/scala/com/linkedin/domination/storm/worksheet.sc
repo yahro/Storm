@@ -10,21 +10,20 @@ import scala.collection._
 object worksheet {
 
 val storm = new Storm                             //> storm  : com.linkedin.domination.storm.Storm = com.linkedin.domination.storm
-                                                  //| .Storm@2e716cb7
+                                                  //| .Storm@59d0d45b
 val t = 0                                         //> t  : Int = 0
                                              
-val seq = storm.optimalStreamUnbound(6, 190, t)   //> seq  : IndexedSeq[com.linkedin.domination.storm.worksheet.storm.Population] 
-                                                  //| = Vector(95, 49, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0, 16, 0, 0, 0
-                                                  //| , 16, 0, 0, 0, 0, 0, 0, 0)
+val seq = storm.optimalStreamUnbound(6, 190, 23)  //> seq  : IndexedSeq[com.linkedin.domination.storm.worksheet.storm.Population] 
+                                                  //| = Vector(95, 0, 0, 0, 0, 0)
 
-seq.size                                          //> res0: Int = 29
+val bbb = storm.accOptimalStreamUnbound(6, 190, 18)
+                                                  //> bbb  : IndexedSeq[com.linkedin.domination.storm.worksheet.storm.Population] 
+                                                  //| = Vector(0, 0, 0, 0, 0, 95, 144, 184, 195, 198, 200)
+
+seq.size                                          //> res0: Int = 6
 storm.MovesAhead + 1 - t                          //> res1: Int = 29
                        
-seq.sum                                           //> res2: com.linkedin.domination.storm.worksheet.storm.Population = 224
+seq.sum                                           //> res2: com.linkedin.domination.storm.worksheet.storm.Population = 95
 
 
-val accSeq = storm.accumulateStream(seq)          //> accSeq  : IndexedSeq[com.linkedin.domination.storm.worksheet.storm.Populatio
-                                                  //| n] = Vector(95, 144, 144, 144, 144, 160, 160, 160, 160, 176, 176, 176, 176, 
-                                                  //| 192, 192, 192, 192, 208, 208, 208, 208, 224, 224, 224, 224, 224, 224, 224, 2
-                                                  //| 24)
 }
