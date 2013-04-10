@@ -472,6 +472,16 @@ class Storm extends Player {
 
       val supportMoves =
         for ((planet, state) <- back if (state.size >= 67 && !usedPlanets.contains(planet))) yield {
+
+          val possibleFleets =
+            for {
+              (fs, d) <- FleetSizes if (fs != FleetType.HORDE)
+              pop = (state.size * d).toInt
+              if (Size.getSizeForNumber(state.size - pop) == Size.LARGE)
+            } yield (fs, pop)
+            
+          val fleetSize = possibleFleets.maxBy(_._2)
+          
           val closestFrontPlanet = planetsByDistance(planet).filter(x => front.contains(x._1)).head._1
 
           if (planetDistances(planet, closestFrontPlanet) >= 7) {
@@ -484,13 +494,13 @@ class Storm extends Player {
               else
                 frontPlanetInRange.minBy(_._2)._1
 
-            val flight = FFlight(planet, target, (state.size * 0.25).toInt,
-              FleetType.SCOUTING, 0, planetDistances(planet, target) - 1)
+            val flight = FFlight(planet, target, fleetSize._2,
+              fleetSize._1, 0, planetDistances(planet, target) - 1)
             TargetedMove(playerNumber, target, List(flight), false)
           } else {
             //support closest
-            val flight = FFlight(planet, closestFrontPlanet, (state.size * 0.25).toInt,
-              FleetType.SCOUTING, 0, planetDistances(planet, closestFrontPlanet) - 1)
+            val flight = FFlight(planet, closestFrontPlanet, fleetSize._2,
+              fleetSize._1, 0, planetDistances(planet, closestFrontPlanet) - 1)
             TargetedMove(playerNumber, closestFrontPlanet, List(flight), false)
           }
         }
@@ -514,7 +524,7 @@ class Storm extends Player {
       val guerrillaMoves =
         for {
           (planet, state) <- front if (state.size >= 67 && !usedPlanets.contains(planet))
-          if (Random.nextDouble < 0.1)
+          if (Random.nextDouble < 0.05)
           target <- guerrillaTarget(planet)
         } yield {
           val flight = FFlight(planet, target._1, (state.size * 0.25).toInt,
