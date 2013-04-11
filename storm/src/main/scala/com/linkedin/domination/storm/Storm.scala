@@ -234,7 +234,7 @@ class Storm extends Player {
 //        ", filtered: " + filtered.size + ", time: " + (newTime - timing))
 //    timing = newTime
       
-//    writeOutTargets(filtered, redistribution)
+//    writeOutTargets(output, filtered, redistribution)
     
     //return moves
     toGameMoves(filtered ::: redistribution)
@@ -1172,7 +1172,6 @@ class Storm extends Player {
    * returned value is number of ships needed to maintain the planet. If balance
    * is positive the returned value is number of ships which can be sent out.
    * 
-   * TODO don't mark neutral as a target if there is an enemy close by (stealing) 
    * Returns possible targets (how many ships need to be sent there)
    * for attack and defense actions.
    * [planet][turn]
@@ -1203,16 +1202,13 @@ class Storm extends Player {
       
       val turns = population(planetId)
       var planetOwnedInFuture = false
-      var arrivalsInFuture = false
+      var fightInFuture = false
       var need = 1
       
       for (t <- MovesAhead to 0 by -1) {
         val turnArrivals = planetArrivals.get(t)
         val turnDeparture = planetDepartures.get(t)
         
-        if (turnArrivals.isDefined && (!turnArrivals.get.isEmpty))
-          arrivalsInFuture = true
-
         val prev = turns(t-1)
         val cur = turns(t)
         
@@ -1235,6 +1231,9 @@ class Storm extends Player {
         
         val forces = (for (force <- grouped)
           yield (FFleet(force._1, force._2.map(_.size).sum))).toList
+          
+        if (forces.filter(_.owner != playerNumber).size > 1)
+          fightInFuture = true;
           
         val maxOpponent: Population =
           forces.filter(_.owner != playerNumber) match {
@@ -1276,8 +1275,8 @@ class Storm extends Player {
             else if (cur.size < 50)
               targetTurns(t) = FTargetPlanet(prev.owner, 50 - cur.size, true)
           }
-        } else if (!planetOwnedInFuture && (prev.owner != NeutralPlanet ||
-            (!arrivalsInFuture && (cur.size < 50 || noOpponents)))) {
+        } else if (!planetOwnedInFuture && !fightInFuture &&
+            (prev.owner != NeutralPlanet || (cur.size < 50 || noOpponents))) {
           //attack
           targetTurns(t) = FTargetPlanet(prev.owner, balance, false)
         }
