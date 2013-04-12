@@ -347,6 +347,10 @@ class Storm extends Player {
           
       if (currentState.owner == playerNumber && currentStateUnderAttack.owner == playerNumber)
         baselineAccGrowth += growth(currentState.size)
+        
+      if (currentState.owner != playerNumber && currentStateUnderAttack.owner != playerNumber &&
+          currentState.owner != NeutralPlanet && currentStateUnderAttack.owner != NeutralPlanet)
+        baselineAccGrowth -= growth(currentState.size)
           
       for (to: PlanetId <- 0 until numberOfPlanets if (to != from)) {
 
@@ -857,6 +861,14 @@ class Storm extends Player {
         if (updatedState.owner == playerNumber && updatedStateUnderAttack.owner == playerNumber)
           currentScore += growth(updatedState.size)
 
+        if (oldState.owner != playerNumber && oldStateUnderAttack.owner != playerNumber &&
+          oldState.owner != NeutralPlanet && oldStateUnderAttack.owner != NeutralPlanet)
+          currentScore += growth(oldState.size)
+
+        if (updatedState.owner != playerNumber && updatedStateUnderAttack.owner != playerNumber &&
+          updatedState.owner != NeutralPlanet && updatedStateUnderAttack.owner != NeutralPlanet)
+          currentScore -= growth(updatedState.size)
+
         //update strengths and streams
         for (to: PlanetId <- 0 until numberOfPlanets if (to != planet)) {
 
@@ -1054,8 +1066,37 @@ class Storm extends Player {
         PartialMoves(pmOwner, pmMoves) = partialMoves
       }
         yield pmMoves).flatten
-    
-    (partialMoves ++ scheduledMoves).toList
+        
+    val naggingTargets =
+      for {
+        (planetId, turnTargets) <- targets
+        if (!partialMoves.exists(_.target == planetId))
+      } yield {
+        val adjustedTurnTargets =
+          for ((trn, tgt) <- turnTargets if (tgt.owner != playerNumber))
+            yield {
+              (trn, tgt.copy(
+                size =
+                  if (tgt.size > 50)
+                    tgt.size - 50
+                  else if (tgt.size > 20)
+                    tgt.size - 20
+                  else tgt.size,
+                soft = true
+              ))
+            }
+        (planetId, adjustedTurnTargets)
+      }
+      
+    val naggingPartialMoves =
+      (for {
+        (planetId, turnTargets) <- naggingTargets
+        partialMoves <- partialMovesForPlanet(MovesAhead, planetId, turnTargets)
+        PartialMoves(pmOwner, pmMoves) = partialMoves
+      }
+        yield pmMoves).flatten
+      
+    (partialMoves ++ naggingPartialMoves ++ scheduledMoves).toList
   }
 
   def growth(size: Int): Int =
