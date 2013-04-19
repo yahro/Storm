@@ -200,7 +200,7 @@ class Storm extends Player {
       generateFuture(arrivalsCopy(arrivals), departures)
 //    writeOutFrontBack(output, futureBase)
     
-    val (balance, targets) = getBalanceAndTargets(futureArs, futureDeps, futureBase)
+    val (balance, targets) = getBalanceAndTargets(futureArs, futureDeps, futureBase, strengths)
 //    writeOutBalance(output, balance)
     
     //calculate moves
@@ -399,7 +399,8 @@ class Storm extends Player {
     else
       v.expected
 
-  def divideIntoFrontAndBack(currentStates: mutable.Map[PlanetId, FPlanet]): (mutable.Map[PlanetId, FPlanet], mutable.Map[PlanetId, FPlanet]) = {
+  def divideIntoFrontAndBack(currentStates: mutable.Map[PlanetId, FPlanet],
+      strengths: Array[Array[Map[Player,Population]]]): (mutable.Map[PlanetId, FPlanet], mutable.Map[PlanetId, FPlanet]) = {
 
     val myPlanets = currentStates.filter(_._2.owner == playerNumber)
     if (myPlanets.size == numberOfPlanets) {
@@ -411,8 +412,12 @@ class Storm extends Player {
 
           val enemies = planetsByDistance(planet).filter{
             p =>
+              val myStrength = strengths(p._1)(MaxAttackTimeSpan)(playerNumber)
+              val opponentsStrength = strengths(p._1)(MaxAttackTimeSpan).values.sum - myStrength
+              val overwhelmingForces = myStrength > 4 * opponentsStrength
+              
               val pState = currentStates(p._1)
-              (pState.owner != playerNumber) && (pState.owner != NeutralPlanet || pState.size < 50)
+              (pState.owner != playerNumber) && (pState.owner != NeutralPlanet || pState.size < 50 || overwhelmingForces)
           }
           
           if (enemies.size > 0) {
@@ -448,7 +453,7 @@ class Storm extends Player {
       for ((planet, turns) <- population)
         yield (planet, turns(0))
         
-    val (front, back) = divideIntoFrontAndBack(currentStates)
+    val (front, back) = divideIntoFrontAndBack(currentStates, strengths)
 
     if (!front.isEmpty) {
       
@@ -590,14 +595,15 @@ class Storm extends Player {
     output.flush()
   }
 
-  def writeOutFrontBack(output: PrintWriter, population: mutable.Map[PlanetId, mutable.Map[Turn,FPlanet]]) = {
+  def writeOutFrontBack(output: PrintWriter, population: mutable.Map[PlanetId, mutable.Map[Turn,FPlanet]],
+      strengths: Array[Array[Map[Player,Population]]]) = {
     output.write("  {\n")
     
         val currentStates =
       for ((planet, turns) <- population)
         yield (planet, turns(0))
     
-    val (front, back) = divideIntoFrontAndBack(currentStates)
+    val (front, back) = divideIntoFrontAndBack(currentStates, strengths)
     
     for (planetId <- 0 until numberOfPlanets) {
       
@@ -705,6 +711,8 @@ class Storm extends Player {
   /**
    * Score is difference between accumulated growth after move
    * and accumulated growth before, divided by ships spent
+   * TODO: 
+   * - add potential growth: lots of small neutrals and distance from us and enemy 
    */
   def score(move: TargetedMove,
       streams: Array[Array[Array[(Player, IndexedSeq[Population], Int)]]],
@@ -714,10 +722,44 @@ class Storm extends Player {
       arrivals: mutable.Map[PlanetId, mutable.Map[Turn,List[FFleet]]],
       departures: mutable.Map[PlanetId, mutable.Map[Turn,FFlight]],
       baselineAccGrowth: Int): Double = {
-    (calculateAccGrowth(move, streams, strengths, states, statesUnderAttack, arrivals, departures, baselineAccGrowth) - baselineAccGrowth).toDouble / move.shipsSpent
+    (calculateAccGrowth(move, streams, strengths, states, statesUnderAttack, arrivals, departures, baselineAccGrowth) -
+        baselineAccGrowth + potentialGrowth(move, states)).toDouble / move.shipsSpent
   }
   
   case class FPlanetUpdate(prevState: FPlanet, departure: Option[FFleet], arrivals: Option[List[FFleet]])
+
+  def potentialGrowth(move: TargetedMove, states: Array[Array[FPlanet]]) = {
+    if (model.turn > 0)
+      0
+    else {
+      val minF = move.flights.minBy {
+        f =>
+          planetDistances(f.from, f.to)
+      }
+      val targetsNeutralNeighrours = planetsByDistance(move.target).filter(x => x._2 <= MaxAttackTimeSpan && states(x._1)(0).owner == NeutralPlanet)
+      val pGr = targetsNeutralNeighrours.map {
+        x =>
+          val (neighbour, distance) = x
+          val myClosest = planetsByDistance(neighbour).find(p => states(p._1)(0).owner == playerNumber).get
+          val closestOpponent = planetsByDistance(neighbour).find {
+            p =>
+              val own = states(p._1)(0).owner
+              own != playerNumber && own != NeutralPlanet
+          }.getOrElse(0, 64)
+          val pGrTurns = ((closestOpponent._2 - myClosest._2 - planetDistances(minF.from, minF.to)) max 0) min MovesAhead
+          val nSize = states(neighbour)(0).size
+          val result =
+            if (nSize >= 50)
+              0
+            else if (nSize >= 20)
+              pGrTurns / 2
+            else
+              pGrTurns
+          result
+      }
+      pGr.sum
+    }
+  }
 
   /**
    * TODO change how many ships can be sent where
@@ -1178,7 +1220,8 @@ class Storm extends Player {
    */
   def getBalanceAndTargets(arrivals: mutable.Map[PlanetId, mutable.Map[Turn, List[FFleet]]], 
       departures: mutable.Map[PlanetId, mutable.Map[Turn, FFleet]], 
-      population:  mutable.Map[PlanetId, mutable.Map[Turn, FPlanet]]):
+      population:  mutable.Map[PlanetId, mutable.Map[Turn, FPlanet]],
+      strengths: Array[Array[Map[Player,Population]]]):
       (mutable.Map[Int, mutable.Map[Int, FPlanet]], mutable.Map[Int, mutable.Map[Int, FTargetPlanet]]) = {
     
     val balance = mutable.Map[PlanetId, mutable.Map[Turn, FPlanet]]()
@@ -1191,6 +1234,10 @@ class Storm extends Player {
     }
     
     for ((planetId, _) <- model.timeline) {
+      
+      val myStrength = strengths(planetId)(MaxAttackTimeSpan)(playerNumber)
+      val opponentsStrength = strengths(planetId)(MaxAttackTimeSpan).values.sum - myStrength
+      val overwhelmingForces = myStrength > 4 * opponentsStrength
 
       val planetArrivals = arrivals.getOrElse(planetId, mutable.Map[Turn, List[FFleet]]())
       val planetDepartures = departures.getOrElse(planetId, mutable.Map[Turn, FFleet]())
@@ -1276,7 +1323,7 @@ class Storm extends Player {
               targetTurns(t) = FTargetPlanet(prev.owner, 50 - cur.size, true)
           }
         } else if (!planetOwnedInFuture && !fightInFuture &&
-            (prev.owner != NeutralPlanet || (cur.size < 50 || noOpponents))) {
+            (prev.owner != NeutralPlanet || (cur.size < 50 || noOpponents || overwhelmingForces))) {
           //attack
           targetTurns(t) = FTargetPlanet(prev.owner, balance, false)
         }
