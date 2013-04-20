@@ -1316,7 +1316,7 @@ class Storm extends Player {
         if (prev.owner == playerNumber) {
           if (balance < 0) {
             //defense
-            targetTurns(t) = FTargetPlanet(prev.owner, -balance, false)
+            targetTurns(t) = FTargetPlanet(prev.owner, -balance, true)
           } else {
             //friendly move, to improve development speed
             if (cur.size < 20)
@@ -1327,7 +1327,7 @@ class Storm extends Player {
         } else if (!planetOwnedInFuture && !fightInFuture &&
             (prev.owner != NeutralPlanet || (cur.size < 50 || noOpponents))) {
           //attack
-          targetTurns(t) = FTargetPlanet(prev.owner, balance, false)
+          targetTurns(t) = FTargetPlanet(prev.owner, balance, true)
         }
         
       }
