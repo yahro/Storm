@@ -43,7 +43,7 @@ class Storm extends Player {
   
   // ** constants **
   val MovesAhead = 28
-  val MaxAttackTimeSpan = 16
+  val MaxAttackTimeSpan = 20
   
   val DefaultValueIfVeryLowConfidence = 67
   val LowConfidenceRange = 100
