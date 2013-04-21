@@ -435,8 +435,6 @@ class Storm extends Player {
   
   /**
    * TODO wyslij statki tam, gdzie jest szansa na zmniejszenie growth pzeciwnika
-   * 
-   * TODO zmien strategie guerilla na atakowanie kombinacji sila+dystans
    */
   def redistributePlanets(population:  mutable.Map[PlanetId, mutable.Map[Turn, FPlanet]],
       strengths: Array[Array[Map[Player,Population]]],
@@ -508,34 +506,7 @@ class Storm extends Player {
           }
         }
 
-      def guerrillaTarget(planet: PlanetId): Option[(PlanetId, Distance)] = {
-        val enemies = planetsByDistance(planet).filter(p =>
-          currentStates(p._1).owner != playerNumber && currentStates(p._1).owner != NeutralPlanet)
-
-        val enemiesInRange = enemies.filter(_._2 <= MaxAttackTimeSpan)
-
-        val target = enemiesInRange match {
-          case Nil => None
-          case _ => {
-            val enemiesByScore = enemiesInRange.map(x => (x._1, x._2 * 20 + currentStates(x._1).size)).sortBy(_._2)
-            Some(enemiesByScore.head)
-          }
-        }
-        target
-      }
-
-      val guerrillaMoves =
-        for {
-          (planet, state) <- front if (state.size >= 67 && !usedPlanets.contains(planet))
-          if (Random.nextDouble < 0.05)
-          target <- guerrillaTarget(planet)
-        } yield {
-          val flight = FFlight(planet, target._1, (state.size * 0.25).toInt,
-            FleetType.SCOUTING, 0, target._2 - 1)
-          TargetedMove(playerNumber, target._1, List(flight), false)
-        }
-
-      supportMoves.toList ::: guerrillaMoves.toList
+      supportMoves.toList
 
     } else
       Nil
