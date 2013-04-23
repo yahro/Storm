@@ -34,8 +34,8 @@ class Storm extends Player {
     
   var playerNumber = 0
   
-//  val output= new PrintWriter("/Users/jodzga/git/storm/storm/visualizer/replay/addon.json")
-//  output.write("{ \"data\": [\n")
+  val output= new PrintWriter("/Users/jodzga/git/storm/storm/visualizer/replay/addon.json")
+  output.write("{ \"data\": [\n")
   
   def initialize(playerNbr: java.lang.Integer) = {
     playerNumber = playerNbr
@@ -193,7 +193,7 @@ class Storm extends Player {
 
     //uses original arrivals
     val (streams, strengths, states, statesUnderAttack, baselineAccGrowth) = calculateStrengthsBaseline(arrivals, departures)
-//    writeOutStrengths(output, strengths)
+    writeOutStrengths(output, strengths)
    
     //note: modifies arrivals
     val (futureBase, futureArs, futureDeps) =
@@ -297,6 +297,9 @@ class Storm extends Player {
       previousStates(planetId) = FPlanet(currentState.owner, withoutGrowth)
     }
 
+    val powers = previousStates.groupBy(_.owner).map(x => (x._1, x._2.size.toDouble))
+    val allPowers = powers.map(_._2).sum
+    
     for {
       t: Turn <- 0 to MovesAhead
       from: PlanetId <- 0 until numberOfPlanets
@@ -332,8 +335,11 @@ class Storm extends Player {
       val arrivalsFromGame = arrivals.get(from).flatMap(_.get(t))
       
       val arrivalsFromStrength =
-        (for ((planet, size) <- strengths(from)(t) if (size > 0))
-          yield FFleet(planet, size)).toList match {
+        (for {
+          (owner, size) <- strengths(from)(t) if (size > 0)
+          sz = (size.toDouble * powers(owner) / allPowers).toInt if (sz > 0)
+        }
+          yield FFleet(owner, sz)).toList match {
           case Nil => None
           case x => Some(x)
         }
@@ -424,7 +430,7 @@ class Storm extends Player {
             myPlanets.count {
               y =>
                 planetDistances(y._1, closestEnemy._1) < closestEnemy._2
-            } < 2
+            } < 2 || closestEnemy._2 <= 7
           } else
             false
       }
@@ -791,6 +797,9 @@ class Storm extends Player {
       initialStates(planetId) = FPlanet(currentState.owner, withoutGrowth)
     }
 
+    val powers = initialStates.groupBy(_.owner).map(x => (x._1, x._2.size.toDouble))
+    val allPowers = powers.map(_._2).sum
+
     val moveFlights: mutable.Map[PlanetId, mutable.Map[Turn, FFlight]] = mutable.Map()
 
     for (flight <- move.flights) {
@@ -846,8 +855,11 @@ class Storm extends Player {
       val arrivalsFromGame = arrivals.get(planet).flatMap(_.get(t))
       val st = addStrengths(strengths(planet)(t), strengthsChanges(planet)(t))
       val arrivalsFromStrength =
-        (for ((planet, size) <- st if (size > 0))
-          yield FFleet(planet, size)).toList match {
+        (for {
+          (owner, size) <- st if (size > 0)
+          sz = (size.toDouble * powers(owner) / allPowers).toInt if (sz > 0)
+        }
+          yield FFleet(owner, sz)).toList match {
           case Nil => None
           case x => Some(x)
         }
