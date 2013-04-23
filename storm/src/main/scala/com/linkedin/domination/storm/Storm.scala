@@ -424,7 +424,7 @@ class Storm extends Player {
             myPlanets.count {
               y =>
                 planetDistances(y._1, closestEnemy._1) < closestEnemy._2
-            } < 2
+            } < 2 || closestEnemy._2 <= 7
           } else
             false
       }
